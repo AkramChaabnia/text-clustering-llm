@@ -1,0 +1,15 @@
+---
+# Commitizen configuration
+# Used by: cz commit  (interactive) or cz c
+# Docs: https://commitizen-tools.github.io/commitizen/
+
+commitizen:
+  name: cz_conventional_commits
+  tag_format: "v$version"
+  version_scheme: semver
+  version_provider: pep621
+  update_changelog_on_bump: true
+  major_version_zero: true  # v0.x while pre-release
+  bump_message: "bump: release $current_version → $new_version [skip ci]"
+  changelog_file: CHANGELOG.md
+  changelog_incremental: true
