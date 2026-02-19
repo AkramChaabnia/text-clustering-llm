@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["*.py"]
+
+[project]
+name = "text-clustering-llm"
+version = "0.1.0"
+description = "Text Clustering as Classification with LLMs — PPD M2 MLSD"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Akram Chaabnia" },
+  { name = "Abdelheq Mokhtari" },
+  { name = "Mohamed Raouf Razi" },
+]
+
+dependencies = [
+  "openai>=1.30.0",
+  "httpx>=0.27.0",
+  "scikit-learn>=1.4.0",
+  "scipy>=1.13.0",
+  "numpy>=1.26.0",
+  "tqdm>=4.66.0",
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "commitizen>=3.27.0",
+  "ruff>=0.4.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "pep621"
+update_changelog_on_bump = true
+major_version_zero = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+# Original paper scripts carry style issues we're not touching in this phase.
+# Will be cleaned up once we move to a proper package layout.
+per-file-ignores = { "label_generation.py" = ["E501", "E722", "I001", "W291", "W293", "W292", "F541"], "given_label_classification.py" = ["E501", "E722", "I001", "W293", "W292", "F541"], "evaluate.py" = ["E501", "E741", "I001", "W291", "W293", "W292"], "select_part_labels.py" = ["I001", "F541", "W292"] }
