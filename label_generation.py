@@ -1,31 +1,66 @@
 import random
-from openai import OpenAI
-import httpx
+# from openai import OpenAI  # replaced by openrouter_adapter.make_client()
+# import httpx               # not needed once we use the adapter
 import os
 import json
 import argparse
-from datetime import datetime
-from tqdm import tqdm
+# from datetime import datetime  # was used for timestamped output dirs, not needed now
+# from tqdm import tqdm          # progress bar; skip for now to keep output readable
 import time
 import re
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
+_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
+_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+_FORCE_JSON_MODE = os.getenv("LLM_FORCE_JSON_MODE", "false").lower() == "true"
 
 
 def ini_client():
-    client = OpenAI()
-    return client
+    #client = OpenAI()
+
+    from openrouter_adapter import make_client
+    return make_client()
+
+
+def _strip_fenced_json(text: str) -> str:
+    """Strip markdown code fences that some models wrap around JSON output."""
+    text = text.strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
 
 def chat(prompt, client):
-    completion = client.chat.completions.create(
-        model="gpt-3.5-turbo-0125",
-        response_format={ "type": "json_object" },
+    kwargs = dict(
+        model=_MODEL,
+        temperature=_TEMPERATURE,
+        max_tokens=_MAX_TOKENS,
         messages=[
-        {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-        {"role": "user", "content": prompt}
-        ]
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt},
+        ],
     )
-    response_origin = completion.choices[0].message.content
-    # print(f"Original response: {response_origin}")
-    return response_origin
+    if _FORCE_JSON_MODE:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    for attempt in range(5):
+        try:
+            completion = client.chat.completions.create(**kwargs)
+            raw = completion.choices[0].message.content
+            return _strip_fenced_json(raw)
+        except Exception as e:
+            if "429" in str(e) and attempt < 4:
+                wait = 20 * (attempt + 1)
+                print(f"  [rate limit] attempt {attempt + 1}/5, retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"  [api error] {e}")
+                return None
+    return None
 
 def load_dataset(data_path, data, use_large):
     # data_file_list = os.listdir(data_path) # ['large.jsonl', 'small.jsonl']
