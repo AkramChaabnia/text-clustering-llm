@@ -147,6 +147,16 @@ def main(args):
     final_labels = merge_labels(args, all_labels, client, target_k=len(true_labels))
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
+
+    ratio = len(final_labels) / len(true_labels)
+    if ratio > 2:
+        logger.warning(
+            "Merged label count (%d) is %.1fx the true class count (%d). "
+            "Classification results will not be comparable to the paper baseline. "
+            "Consider re-running Step 1 before proceeding to Step 2.",
+            len(final_labels), ratio, len(true_labels),
+        )
+
     logger.info("Done in %.1fs", time.time() - start)
 
 
