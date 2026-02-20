@@ -11,7 +11,7 @@
 1. [Paper Overview](#1-paper-overview)
 2. [Setup](#2-setup)
 3. [Dataset](#3-dataset)
-4. [Code Issues & Fixes](#4-code-issues--fixes)
+4. [Code Changes](#4-code-changes)
 5. [API & Model Investigation](#5-api--model-investigation)
 6. [Model Probe Results](#6-model-probe-results)
 7. [Pipeline Execution Log](#7-pipeline-execution-log)
@@ -29,31 +29,58 @@
 
 ### Core idea
 
-The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM. Instead of relying on embeddings + k-means, the pipeline:
+The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM. Instead of embeddings + k-means, the approach is:
 
 1. **Label generation** — given a small set of seed labels (20% of ground truth), the LLM proposes new label names by reading chunks of input texts. Duplicate/similar labels are merged in a second LLM call.
 2. **Classification** — the LLM assigns each text to one of the generated labels, one text at a time.
 3. **Evaluation** — standard clustering metrics: ACC (Hungarian alignment), NMI, ARI.
 
-### Pipeline schema
+### Pipeline — step by step
+
+**Step 0 — Seed label selection**  
+Before running the LLM, 20% of the ground-truth labels are randomly sampled per dataset and written to `chosen_labels.json`. These seeds are handed to the LLM in Step 1 as a starting point, which anchors the taxonomy and avoids completely free-form generation.
+
+**Step 1 — Label generation**  
+The dataset is shuffled and split into chunks of 15 texts. For each chunk, the LLM is shown the current label set and asked: *"Do any of these texts require a new label that doesn't already exist?"* It adds new candidate labels when needed. Once all chunks are processed, a second LLM call merges and deduplicates near-synonyms (e.g. `"email"` and `"email_management"` collapse into one). The result is the final label set used in Step 2.
+
+**Step 2 — Classification**  
+Each text is sent individually to the LLM with the full label list: *"Which of these labels fits this text best?"* The predicted label is accumulated into a dict `{ label: [text, text, ...] }` and saved as `classifications.json`. This step makes one API call per sample — ~3,000 calls for most datasets. Progress is checkpointed every 200 samples so interrupted runs can resume without starting over.
+
+**Step 3 — Evaluation**  
+Predicted labels are matched to ground-truth labels using the Hungarian algorithm (optimal one-to-one alignment), then ACC, NMI and ARI are computed. Results are printed and saved to `results.json`.
+
+### Pipeline diagram
 
 ```
-Dataset (texts + true labels)
-        │
-        ▼
-select_part_labels.py ──► chosen_labels.json  (seed: 20% of true labels)
-        │
-        ▼
-label_generation.py
-  ├─ Chunk texts (15/chunk) + seed labels → LLM → candidate labels
-  └─ Merge similar labels → LLM → merged_labels_after_merge.json
-        │
-        ▼
-given_label_classification.py
-  └─ Each text + merged_labels → LLM → predicted label
-        │
-        ▼
-evaluate.py ──► ACC / NMI / ARI
+dataset/
+  └── small.jsonl  (texts + ground-truth labels)
+          │
+          ▼
+  [Step 0]  seed_labels.py
+          │  picks 20% of true labels at random
+          ▼
+  runs/chosen_labels.json
+          │
+          ▼
+  [Step 1]  label_generation.py  --data <dataset>
+          │  chunks of 15 texts → LLM proposes labels → merge call
+          ▼
+  runs/<dataset>_small_<timestamp>/
+    labels_true.json        (ground-truth label list)
+    labels_proposed.json    (before merge)
+    labels_merged.json      (final label set)
+          │
+          ▼
+  [Step 2]  classification.py  --run_dir <above>
+          │  one LLM call per text → assigns a label
+          ▼
+    classifications.json    { label: [text, ...] }
+          │
+          ▼
+  [Step 3]  evaluation.py  --run_dir <above>
+          │  Hungarian alignment → ACC / NMI / ARI
+          ▼
+    results.json
 ```
 
 ### Models used in the paper
@@ -92,11 +119,11 @@ evaluate.py ──► ACC / NMI / ARI
 
 | File | Purpose |
 |------|---------|
-| `pyproject.toml` | Project metadata and all dependencies |
+| `pyproject.toml` | Project metadata and dependencies |
 | `uv.lock` | Pinned lockfile for reproducibility |
 | `requirements.txt` | Pinned fallback for pip users |
 | `.env.example` | Documents every env variable (no secrets) |
-| `openrouter_adapter.py` | Thin wrapper: loads `.env`, builds `openai.OpenAI` client for OpenRouter |
+| `text_clustering/client.py` | Thin wrapper: loads `.env`, builds `openai.OpenAI` client for OpenRouter |
 | `.cz.yaml` | Commitizen config (conventional commits) |
 | `.github/workflows/ci.yml` | Lint CI on PRs to `main` / `develop` |
 
@@ -155,32 +182,38 @@ The download bundle contains 14 datasets. The 9 extras (`banking77`, `clinc`, `c
 | `mtop_intent` | 102 | 20 |
 | `arxiv_fine` | 93 | 18 |
 
-Output: `./generated_labels/chosen_labels.json`
+Output: `./runs/chosen_labels.json`
 
 ---
 
-## 4. Code Issues & Fixes
+## 4. Code Changes
 
-All changes are minimal — no structural modifications to the pipeline logic.
+The original code was written to run against OpenAI directly with a paid key. Adapting it to free models via OpenRouter exposed several bugs and missing pieces. This section documents what was broken (fixes) and what was added on top (improvements).
 
-### Fix 1 — `ini_client()` call signature
+---
 
-**File**: `given_label_classification.py`  
-**Issue**: `main()` called `ini_client(args.api_key)` but `ini_client()` accepted no arguments → `TypeError` on every run.
+### Fixes
+
+These are things that were broken in the original and prevented the pipeline from running correctly.
+
+#### Fix 1 — `ini_client()` call signature
+
+**File**: `text_clustering/pipeline/classification.py`  
+**Issue**: `main()` called `ini_client(args.api_key)` but `ini_client()` took no arguments → `TypeError` on every run.
 
 ```python
 # Before
 client = ini_client(args.api_key)
 
 # After
-client = ini_client()  # API key comes from .env via openrouter_adapter
+client = ini_client()  # API key comes from .env
 ```
 
-### Fix 2 — `response_format` not universally supported
+#### Fix 2 — `response_format` not universally supported
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: The original code always sent a hardcoded `response_format={"type":"json_object"}`. Many free models return HTTP 400 or an empty body when this is set.  
-**Fix**: Made it conditional via `LLM_FORCE_JSON_MODE` env var (default `false`).
+**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
+**Issue**: The original code always sent `response_format={"type":"json_object"}`. Many free models return HTTP 400 or an empty body when this is set.  
+**Fix**: Made it opt-in via `LLM_FORCE_JSON_MODE` env var (default `false`).
 
 ```python
 _FORCE_JSON_MODE = os.getenv("LLM_FORCE_JSON_MODE", "false").lower() == "true"
@@ -189,15 +222,14 @@ if _FORCE_JSON_MODE:
     kwargs["response_format"] = {"type": "json_object"}
 ```
 
-### Fix 3 — Markdown fence stripping
+#### Fix 3 — Markdown fence stripping
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: Free models often wrap their JSON in markdown code fences (` ```json ... ``` `). The original `eval()` call cannot parse these - returns `None` or raises `SyntaxError`, causing all labels to be silently skipped.  
-**Fix**: Added `_strip_fenced_json()` helper applied after every API call.
+**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
+**Issue**: Free models often wrap JSON in markdown code fences (` ```json ... ``` `). The original `eval()` call fails on these, silently dropping labels.  
+**Fix**: Added `_strip_fenced_json()` applied after every API call.
 
 ```python
 def _strip_fenced_json(text: str) -> str:
-    import re
     text = text.strip()
     match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
     if match:
@@ -205,11 +237,11 @@ def _strip_fenced_json(text: str) -> str:
     return text
 ```
 
-### Fix 4 — No retry on rate limits
+#### Fix 4 — No retry on rate limits
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: Original code had no error handling on the API call level. A single 429 silently returned `None`, causing data loss across entire chunks.  
-**Fix**: Added 5-attempt retry loop with exponential backoff (20s, 40s, 60s, 80s).
+**File**: `text_clustering/llm.py`  
+**Issue**: No error handling around API calls. A single 429 silently returned `None`, losing an entire chunk of labels with no indication.  
+**Fix**: 5-attempt retry with linear backoff (20s, 40s, 60s, 80s).
 
 ```python
 for attempt in range(5):
@@ -226,37 +258,82 @@ for attempt in range(5):
             return None
 ```
 
-### Fix 5 — Hardcoded model name
+#### Fix 5 — Hardcoded model name
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: Model name `"gpt-3.5-turbo-0125"` was hardcoded.  
-**Fix**: Read from env var `LLM_MODEL` (with original as default for backward compat).
+**File**: `text_clustering/config.py`  
+**Issue**: `"gpt-3.5-turbo-0125"` was hardcoded in every script, making model switching require code edits.  
+**Fix**: Read from `LLM_MODEL` env var.
 
 ```python
-_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
+MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
 ```
 
-### Fix 6 — Missing `.env` loading
+#### Fix 6 — Missing `.env` loading
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: Scripts never called `load_dotenv()` - env vars from `.env` were not loaded.  
-**Fix**: Added `load_dotenv()` at module top.
+**File**: `text_clustering/client.py`  
+**Issue**: `load_dotenv()` was never called, so the `.env` file was silently ignored and all env vars fell back to their defaults.  
+**Fix**: `load_dotenv()` called at import time in `client.py`.
 
-### Fix 7 — `LLM_REQUEST_DELAY` not consumed
+#### Fix 7 — `LLM_REQUEST_DELAY` not consumed
 
-**Files**: `label_generation.py`, `given_label_classification.py`  
-**Issue**: `.env` defines `LLM_REQUEST_DELAY=4` but neither script read it. Without a delay between calls the pipeline fires requests as fast as the API responds, hitting the 20 req/min ceiling and triggering 429s.  
-**Fix**: Read the env var at startup and sleep after each successful API call.
+**File**: `text_clustering/llm.py`  
+**Issue**: `.env` defines `LLM_REQUEST_DELAY=4` but no script read it. Without a delay, requests fire back-to-back and immediately hit the 20 req/min ceiling.  
+**Fix**: Sleep after each successful API call.
 
 ```python
 _REQUEST_DELAY = float(os.getenv("LLM_REQUEST_DELAY", "0"))
 
-# inside chat(), after a successful completion:
+# after a successful completion:
 if _REQUEST_DELAY > 0:
     time.sleep(_REQUEST_DELAY)
 ```
 
-With `LLM_REQUEST_DELAY=4` this caps throughput at 15 req/min, safely under the 20 req/min OpenRouter limit.
+With `LLM_REQUEST_DELAY=4` the pipeline stays at ~15 req/min, safely under the OpenRouter limit.
+
+---
+
+### Improvements
+
+These are additions that go beyond the original scope — the pipeline worked without them, but they make it more practical for long or repeated runs.
+
+#### Improvement 1 — Package restructuring
+
+The original code was 4 flat scripts with duplicated helpers (`ini_client`, `chat`, prompt builders) copy-pasted across files. All shared logic was moved into a proper `text_clustering/` package:
+
+- `client.py` — API client factory
+- `config.py` — single source of truth for all env vars
+- `llm.py` — `chat()` with retry, `_strip_fenced_json()`
+- `data.py` — dataset loading
+- `prompts.py` — prompt construction
+- `pipeline/` — the 4 pipeline steps as importable modules with console-script entry points
+
+#### Improvement 2 — Timestamped run directories
+
+The original wrote all outputs to a flat `generated_labels/` folder with fixed filenames, so re-running a dataset overwrote previous results.
+
+Each Step 1 run now creates an isolated folder: `runs/<dataset>_<split>_<YYYYMMDD_HHMMSS>/`. All subsequent steps read from and write to that folder. Previous runs are never touched.
+
+#### Improvement 3 — Checkpoint / resume (Step 2)
+
+Step 2 makes one API call per text (~3,000 per dataset, ~3h20). The original had no way to recover from an interruption — a crash meant starting from scratch.
+
+Progress is now saved to `checkpoint.json` every 200 samples. Re-running the same command detects the checkpoint and resumes from where it stopped. The checkpoint is deleted automatically on successful completion.
+
+#### Improvement 4 — `results.json`
+
+The original `evaluate.py` printed metrics to stdout only. Results are now also written to `results.json` in the run directory, including ACC, NMI, ARI, sample count, cluster counts, model name, and timestamp.
+
+#### Improvement 5 — Logging
+
+All `print()` calls in the pipeline were replaced with Python's standard `logging` module. A `setup_logging(log_path)` function configures two handlers at startup: one to stdout (INFO level) and one to a `run.log` file inside the run directory (DEBUG level). The log format includes a timestamp, level, and module name:
+
+```
+2026-02-20 14:32:01 | INFO     | label_generation | Run dir: ./runs/...
+```
+
+Every pipeline step writes its full trace to `run.log` in its run directory. Step 0 writes to `runs/seed_labels.log`. This means a run can always be reconstructed after the fact — which model was used, when each step ran, any rate limit retries, and progress checkpoints.
+
+
 
 ---
 
@@ -357,36 +434,36 @@ All models tested with `probe_models.py` on 2026-02-20 (6 tests each: reachabili
 
 ## 7. Pipeline Execution Log
 
-First run targets **`massive_scenario`** — the lightest dataset (2,974 samples, 18 classes). Goal is to validate the full pipeline end-to-end and get a first comparison with the paper before committing to the other datasets.
+First target: **`massive_scenario`** — the lightest dataset (2,974 samples, 18 classes). Goal is to validate the full pipeline end-to-end before running the other datasets.
 
 ### Estimated cost per step
 
-| Step | Script | API calls | Time @ 4s/call |
-|------|--------|-----------|----------------|
-| 0 | `select_part_labels.py` | 0 | ~2s |
-| 1 | `label_generation.py` | ~200 (chunks + merge) | ~13 min |
-| 2 | `given_label_classification.py` | 2,974 (one per text) | ~3h20 |
-| 3 | `evaluate.py` | 0 | ~5s |
+| Step | Command | API calls | Time @ 4s/call |
+|------|---------|-----------|----------------|
+| 0 | `tc-seed-labels` | 0 | ~2s |
+| 1 | `tc-label-gen` | ~200 (chunks + merge) | ~13 min |
+| 2 | `tc-classify` | 2,974 (one per text) | ~3h20 |
+| 3 | `tc-evaluate` | 0 | ~5s |
 
-### Step 0 — `select_part_labels.py` ⏳
+### Step 0 — seed labels ⏳
 
-Needs to be run before Step 1 to generate the seed labels file.
+Generates `./runs/chosen_labels.json`.
 
-### Step 1 — `label_generation.py --data massive_scenario` ⏳
+### Step 1 — label generation ⏳
 
 ```
 Model  : arcee-ai/trinity-large-preview:free
 Status : not started
-Output : ./generated_labels/massive_scenario_small_llm_generated_labels_after_merge.json
+Output : ./runs/massive_scenario_small_<timestamp>/labels_merged.json
 ```
 
-### Step 2 — `given_label_classification.py --data massive_scenario` ⏳
+### Step 2 — classification ⏳
 
-Waiting on Step 1 output.
+Waiting on Step 1.
 
-### Step 3 — `evaluate.py` ⏳
+### Step 3 — evaluation ⏳
 
-Waiting on Step 2 output.
+Waiting on Step 2.
 
 ---
 
@@ -418,12 +495,12 @@ Column order in Table 2 (paper): ArxivS2S | GoEmo | Massive-D | Massive-I | MTOP
 
 ## 9. Next Steps
 
-1. Run `select_part_labels.py` to generate the seed labels
-2. Run Step 1 (`label_generation.py --data massive_scenario`)
-3. Run Step 2 (`given_label_classification.py --data massive_scenario`) — ~3h20, run in background
-4. Run Step 3 (`evaluate.py --data massive_scenario`), fill in §8 results table
+1. Run `tc-seed-labels` to generate seed labels
+2. Run `tc-label-gen --data massive_scenario`, note the run directory
+3. Run `tc-classify --data massive_scenario --run_dir <above>` — ~3h20, runs in background
+4. Run `tc-evaluate --data massive_scenario --run_dir <above>`, fill in §8 results table
 5. Re-probe Venice-blocked models (Llama 70B, Mistral 24B, Hermes 405B, Gemma 27B) during off-peak hours
-6. Once a second model is confirmed, run the same pipeline and compare against the paper baseline
+6. Once a second model passes the probe, run the same pipeline and compare against the paper baseline
 7. Extend to the remaining 4 datasets once `massive_scenario` is validated end-to-end
 
-> **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`. This is not viable with a single free-tier API key — running 5 datasets simultaneously would immediately saturate the 20 req/min rate limit and cause cascading 429s. We run them sequentially instead.
+> **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`. With a single free API key this immediately saturates the 20 req/min rate limit. We run datasets sequentially instead.
