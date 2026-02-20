@@ -434,9 +434,12 @@ All models tested with `probe_models.py` on 2026-02-20 (6 tests each: reachabili
 
 ## 7. Pipeline Execution Log
 
-First target: **`massive_scenario`** — the lightest dataset (2,974 samples, 18 classes). Goal is to validate the full pipeline end-to-end before running the other datasets.
+### Run 01 — `massive_scenario` · `arcee-ai/trinity-large-preview:free` · 2026-02-20
 
-### Estimated cost per step
+First end-to-end validation run. Target: lightest dataset (2,974 samples, 18 classes).  
+Pipeline executed with **no code changes** relative to v1.2.0 — unmodified prompts, default `LLM_MAX_TOKENS=512`.
+
+#### Estimated cost per step (pre-run)
 
 | Step | Command | API calls | Time @ 4s/call |
 |------|---------|-----------|----------------|
@@ -445,25 +448,44 @@ First target: **`massive_scenario`** — the lightest dataset (2,974 samples, 18
 | 2 | `tc-classify` | 2,974 (one per text) | ~3h20 |
 | 3 | `tc-evaluate` | 0 | ~5s |
 
-### Step 0 — seed labels ⏳
-
-Generates `./runs/chosen_labels.json`.
-
-### Step 1 — label generation ⏳
+#### Step 0 — seed labels ✅
 
 ```
-Model  : arcee-ai/trinity-large-preview:free
-Status : not started
-Output : ./runs/massive_scenario_small_<timestamp>/labels_merged.json
+Completed : 2026-02-20 16:13:18  (~2s)
+Output    : runs/chosen_labels.json
+Seeds     : arxiv_fine=18, go_emotion=5, massive_intent=11, massive_scenario=3, mtop_intent=20
 ```
 
-### Step 2 — classification ⏳
+#### Step 1 — label generation ✅
 
-Waiting on Step 1.
+```
+Completed : 2026-02-20 16:40:38  (26.6 min — 198 chunk calls + 1 merge call)
+Run dir   : runs/massive_scenario_small_20260220_161359/
+Proposed  : 190 labels  (before merge)
+Merged    : 190 labels  (merge call silently failed — see issue below)
+```
 
-### Step 3 — evaluation ⏳
+**Issue discovered — merge response truncated at 512 tokens**:  
+The `LLM_MAX_TOKENS=512` default is too small for a merge response covering 190 labels
+(~2,300 tokens needed). The merge API call returned a truncated JSON string, `eval()` threw an
+exception, and `merge_labels()` silently fell back to returning the unmerged list unchanged.
+The pipeline continued without any error or warning. Result: 190 labels for an 18-class dataset.
 
-Waiting on Step 2.
+#### Step 2 — classification ✅
+
+```
+Started   : 2026-02-20 16:45:25
+Completed : 2026-02-20 21:14:53  (4h29 — 2,974 API calls)
+Classified into 168 distinct predicted labels (22 of the 190 received 0 samples)
+Output    : runs/massive_scenario_small_20260220_161359/classifications.json
+```
+
+#### Step 3 — evaluation ✅
+
+```
+Completed : 2026-02-20 21:45:34
+n_clusters_pred : 168  (vs. 18 true)
+```
 
 ---
 
@@ -482,25 +504,130 @@ Column order in Table 2 (paper): ArxivS2S | GoEmo | Massive-D | Massive-I | MTOP
 | `massive_intent` | 64.12 | 65.44 | 48.92 |
 | `mtop_intent` | 72.18 | 78.78 | 71.93 |
 
-### Reproduction — `massive_scenario` with `arcee-ai/trinity-large-preview:free`
+---
 
-| Model | ACC | NMI | ARI |
-|-------|-----|-----|-----|
-| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 |
-| `arcee-ai/trinity-large-preview:free` | — | — | — |
+### Run 01 — `massive_scenario` · `arcee-ai/trinity-large-preview:free`
 
-*To be filled after the run completes.*
+**Conditions**: v1.2.0 pipeline, no prompt changes, `LLM_MAX_TOKENS=512` (default).
+
+| Model | ACC | NMI | ARI | n_pred_clusters |
+|-------|-----|-----|-----|-----------------|
+| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 (estimated) |
+| `arcee-ai/trinity-large-preview:free` | **40.69** | **66.64** | **33.06** | **168** |
+
+**These numbers are not directly comparable to the paper.** The paper baseline implicitly assumes
+the merge step produces a label set close in size to the true class count (~18 for this dataset).
+With 168 predicted clusters the Hungarian alignment has a much harder problem: the scores are
+degraded not by classification quality but by taxonomy fragmentation from the failed merge step.
+
+#### Root cause — per-class fragmentation
+
+The merge received 190 labels and returned 190 unchanged (truncated response, silent fallback).
+168 of those received at least one sample. Each true class was split across multiple predicted
+labels instead of being captured by one:
+
+| True class | n | Dominant predicted label | % captured | # predicted splits |
+|------------|---|--------------------------|------------|---------------------|
+| `alarm` | 96 | `alarm` | 91% | 3 |
+| `weather` | 156 | `weather` | 88% | 10 |
+| `cooking` | 72 | `recipe` | 69% | 8 |
+| `news` | 124 | `news` | 70% | 18 |
+| `email` | 271 | `email` | 53% | 23 |
+| `music` | 81 | `music` | 53% | 9 |
+| `datetime` | 103 | `time` | 48% | 8 |
+| `social` | 106 | `social media` | 46% | 17 |
+| `takeaway` | 57 | `food order` | 40% | 9 |
+| `transport` | 124 | `train` | 35% | 9 |
+| `play` | 387 | `music` | 35% | 26 |
+| `iot` | 220 | `lighting control` | 35% | 13 |
+| `lists` | 142 | `list` | 32% | 26 |
+| `calendar` | 402 | `calendar` | 32% | 35 |
+| `recommendation` | 94 | `local events` | 33% | 23 |
+| `audio` | 62 | `volume control` | 39% | 14 |
+| `general` | 189 | `general` | 23% | 61 |
+| `qa` | 288 | `general knowledge` | 15% | 39 |
+
+**Concrete synonym groups that should have been merged but weren't:**
+
+| True class | Un-merged synonyms |
+|------------|--------------------|
+| `datetime` | `time`, `date`, `time zone`, `time conversion`, `date time` |
+| `play` | `music`, `music playback`, `podcast`, `podcasts`, `radio`, `audiobook` |
+| `audio` | `volume control`, `volume`, `sound control`, `mute`, `media control` |
+| `lists` | `list`, `lists`, `to-do list`, `task management`, `task` |
+| `takeaway` | `food order`, `food`, `delivery`, `order`, `order tracking`, `restaurant locate` |
+
+#### Interpretation
+
+The label-generation step worked correctly — every true class concept appears in the proposed
+list. The failure is entirely in the merge step, which was silently skipped due to token
+truncation. This run validates that the pipeline executes end-to-end without errors, but the
+metric gap (ACC −31, NMI −11, ARI −24 vs. paper) is an artifact of the broken merge, not of
+classification quality or model capability.
+
+A re-run with the merge step fixed is needed before the results can be compared to the paper.
+See §9 for the planned fixes.
 
 ---
 
 ## 9. Next Steps
 
-1. Run `tc-seed-labels` to generate seed labels
-2. Run `tc-label-gen --data massive_scenario`, note the run directory
-3. Run `tc-classify --data massive_scenario --run_dir <above>` — ~3h20, runs in background
-4. Run `tc-evaluate --data massive_scenario --run_dir <above>`, fill in §8 results table
-5. Re-probe Venice-blocked models (Llama 70B, Mistral 24B, Hermes 405B, Gemma 27B) during off-peak hours
-6. Once a second model passes the probe, run the same pipeline and compare against the paper baseline
-7. Extend to the remaining 4 datasets once `massive_scenario` is validated end-to-end
+### Planned fixes before Run 02
 
-> **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`. With a single free API key this immediately saturates the 20 req/min rate limit. We run datasets sequentially instead.
+Three targeted changes were identified from the Run 01 analysis. None of them alter the paper's
+core approach — they correct implementation gaps that prevented the pipeline from running as
+the paper intended.
+
+See `fix/run-02-prep` branch for the implementation of all three.
+
+#### Fix A — Merge token budget (`LLM_MAX_TOKENS` override for merge call)
+
+**Problem**: The merge API call shares the same `LLM_MAX_TOKENS=512` default as every other call.
+A 190-label merge response needs ~2,300 tokens. The response was truncated, `eval()` failed,
+and the unmerged list was silently returned — 190 labels instead of ~18.  
+**Fix**: Allow `chat()` to accept a per-call `max_tokens` override. Pass `max_tokens=4096` in
+`merge_labels()`. This is the exact same intent as the original code, just with a token budget
+that lets the response complete.  
+**Changes paper approach?** No.
+
+#### Fix B — Target-k in the merge prompt
+
+**Problem**: Even with 4096 tokens, the merge prompt as written asks the model to *"identify
+entries that are similar or duplicate… and merge them"* with no guidance on how many groups to
+produce. `trinity-large-preview` keeps fine-grained distinctions (e.g. `time` / `date` /
+`time zone` / `time conversion` as 4 labels instead of one `datetime`). GPT-3.5 collapses them
+implicitly because it is better at this instruction. We compensate by being explicit.  
+**Fix**: Add *"The list should contain approximately {k} labels"* to the merge prompt, where
+`k = len(true_labels)` (already available in Step 1 as `labels_true.json`).  
+**Changes paper approach?** No — same merge intent, explicit target count to compensate for a
+weaker model's instruction-following.
+
+#### Fix C — Warn when merged count >> true class count
+
+**Problem**: The pipeline ran Step 2 for 4h29 on a broken label set with no warning. There was no
+gate between Step 1 and Step 2 to catch this.  
+**Fix**: After merge, log a `WARNING` if `len(merged_labels) > 2 × k`:
+```
+WARNING: merged label count (190) is 10× the true class count (18).
+         Classification results will not be comparable to the paper baseline.
+         Consider re-running Step 1 before proceeding to Step 2.
+```
+**Changes paper approach?** No — observability only, no logic change.
+
+### Run 02 plan (after fixes)
+
+1. Apply fixes A + B + C on branch `fix/run-02-prep`, merge to `develop`
+2. Re-run Step 1 for `massive_scenario` (~30 min) — verify merged count ≈ 18–25
+3. Re-run Step 2 (~3h20)
+4. Re-run Step 3, fill in Run 02 results row in §8
+5. Compare against paper baseline
+
+### Longer term
+
+- Re-probe Venice-blocked models (Llama 70B, Mistral 24B, Hermes 405B, Gemma 27B) during off-peak
+- Once a second model passes, run the same pipeline and compare
+- Extend to remaining 4 datasets once `massive_scenario` Run 02 is validated
+
+> **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`.
+> With a single free API key this saturates the 20 req/min rate limit immediately.
+> We run datasets sequentially instead.
