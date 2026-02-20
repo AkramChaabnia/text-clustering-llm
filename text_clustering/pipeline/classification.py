@@ -147,7 +147,7 @@ def describe_final_output(answer):
 
 def main(args):
     size = "large" if args.use_large else "small"
-    setup_logging(os.path.join(args.run_dir, "run.log"))
+    setup_logging(os.path.join(args.run_dir, "step2_classification.log"))
 
     logger.info("=== Step 2 — Classification ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)

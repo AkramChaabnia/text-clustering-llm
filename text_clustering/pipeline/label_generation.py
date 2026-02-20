@@ -124,7 +124,7 @@ def merge_labels(args, all_labels, client, target_k: int | None = None):
 def main(args):
     size = "large" if args.use_large else "small"
     run_dir = make_run_dir(args.runs_dir, args.data, size)
-    setup_logging(os.path.join(run_dir, "run.log"))
+    setup_logging(os.path.join(run_dir, "step1_label_gen.log"))
 
     logger.info("=== Step 1 — Label Generation ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)
