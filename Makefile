@@ -4,15 +4,21 @@
 help:
 	@echo "Usage: make <target>"
 	@echo ""
-	@echo "  setup                        create venv, install deps and git hooks"
-	@echo "  lint                         run ruff on all Python files"
-	@echo "  branch name=<n> type=<t>     create and push a new branch off develop"
-	@echo "  release                      bump version, merge develop->main, push tags"
+	@echo "  setup                              venv + install + git hooks"
+	@echo "  lint                               ruff check"
+	@echo "  branch name=<n> type=<t>           create and push a branch off develop"
+	@echo "  release                            bump version, merge develop->main, push tags"
 	@echo ""
-	@echo "  run-step0                    select seed labels (run once)"
-	@echo "  run-step1 data=<dataset>     generate candidate labels"
-	@echo "  run-step2 data=<dataset>     classify (runs in background)"
-	@echo "  run-step3 data=<dataset>     evaluate results"
+	@echo "  run-step0                          seed labels (run once)"
+	@echo "  run-step1 data=<dataset>           label generation — prints the run directory"
+	@echo "  run-step2 data=<d> run=<run_dir>   classification (background, resumes on restart)"
+	@echo "  run-step3 data=<d> run=<run_dir>   evaluation → results.json"
+	@echo ""
+	@echo "  Example:"
+	@echo "    make run-step0"
+	@echo "    make run-step1 data=massive_scenario"
+	@echo "    make run-step2 data=massive_scenario run=./runs/massive_scenario_small_20260220_143012"
+	@echo "    make run-step3 data=massive_scenario run=./runs/massive_scenario_small_20260220_143012"
 	@echo ""
 
 setup:
@@ -49,32 +55,38 @@ release:
 	git push origin --tags
 
 run-step0:
-	.venv/bin/python select_part_labels.py
+	.venv/bin/tc-seed-labels
 
 # usage: make run-step1 data=massive_scenario
+# Prints the created run_dir — copy it for use in steps 2 and 3.
 run-step1:
 ifndef data
 	$(error data is required, e.g. make run-step1 data=massive_scenario)
 endif
 	mkdir -p logs
-	.venv/bin/python label_generation.py --data $(data) 2>&1 | tee logs/$(data)_label_gen.log
+	.venv/bin/tc-label-gen --data $(data) 2>&1 | tee logs/$(data)_label_gen.log
 
-# usage: make run-step2 data=massive_scenario  (runs in background)
+# usage: make run-step2 data=massive_scenario run=./runs/massive_scenario_small_20260220_143012
+# Runs in the background; resumes automatically if a checkpoint.json exists in run_dir.
 run-step2:
 ifndef data
-	$(error data is required, e.g. make run-step2 data=massive_scenario)
+	$(error data is required)
+endif
+ifndef run
+	$(error run is required, e.g. run=./runs/massive_scenario_small_20260220_143012)
 endif
 	mkdir -p logs
-	nohup .venv/bin/python given_label_classification.py --data $(data) \
-		> logs/$(data)_classification.log 2>&1 &
-	@echo "running in background — tail logs/$(data)_classification.log"
+	nohup .venv/bin/tc-classify --data $(data) --run_dir $(run) \
+		>> logs/$(data)_classification.log 2>&1 &
+	@echo "running in background — tail -f logs/$(data)_classification.log"
+	@echo "to resume after interruption, re-run the same command"
 
-# usage: make run-step3 data=massive_scenario
+# usage: make run-step3 data=massive_scenario run=./runs/massive_scenario_small_20260220_143012
 run-step3:
 ifndef data
-	$(error data is required, e.g. make run-step3 data=massive_scenario)
+	$(error data is required)
 endif
-	.venv/bin/python evaluate.py \
-		--data $(data) \
-		--predict_file_path ./generated_labels/ \
-		--predict_file $(data)_small_find_labels.json
+ifndef run
+	$(error run is required, e.g. run=./runs/massive_scenario_small_20260220_143012)
+endif
+	.venv/bin/tc-evaluate --data $(data) --run_dir $(run)
