@@ -8,8 +8,15 @@ Log format
 ----------
   2026-02-20 14:32:01 | INFO     | label_generation | Run dir: ./runs/...
 
-Both a StreamHandler (stdout) and a FileHandler (run.log) are attached
-to the root logger so every log call is captured in the log file.
+Both a StreamHandler (stdout, INFO) and a FileHandler (DEBUG) are attached
+to the root logger so every log call is captured in the step's own log file.
+
+Log files per step
+------------------
+  runs/seed_labels.log                      ← Step 0
+  runs/<run_dir>/step1_label_gen.log        ← Step 1
+  runs/<run_dir>/step2_classification.log   ← Step 2
+  runs/<run_dir>/step3_evaluation.log       ← Step 3
 """
 
 import logging

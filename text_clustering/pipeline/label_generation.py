@@ -108,9 +108,9 @@ def label_generation(args, client, data_list, chunk_size):
     return all_labels
 
 
-def merge_labels(args, all_labels, client):
-    prompt = prompt_construct_merge_label(all_labels)
-    response = chat(prompt, client)
+def merge_labels(args, all_labels, client, target_k: int | None = None):
+    prompt = prompt_construct_merge_label(all_labels, target_k=target_k)
+    response = chat(prompt, client, max_tokens=4096)
     try:
         response = eval(response)  # noqa: S307
         merged = []
@@ -124,7 +124,7 @@ def merge_labels(args, all_labels, client):
 def main(args):
     size = "large" if args.use_large else "small"
     run_dir = make_run_dir(args.runs_dir, args.data, size)
-    setup_logging(os.path.join(run_dir, "run.log"))
+    setup_logging(os.path.join(run_dir, "step1_label_gen.log"))
 
     logger.info("=== Step 1 — Label Generation ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)
@@ -144,9 +144,19 @@ def main(args):
     logger.info("Labels proposed (before merge): %d", len(all_labels))
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
-    final_labels = merge_labels(args, all_labels, client)
+    final_labels = merge_labels(args, all_labels, client, target_k=len(true_labels))
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
+
+    ratio = len(final_labels) / len(true_labels)
+    if ratio > 2:
+        logger.warning(
+            "Merged label count (%d) is %.1fx the true class count (%d). "
+            "Classification results will not be comparable to the paper baseline. "
+            "Consider re-running Step 1 before proceeding to Step 2.",
+            len(final_labels), ratio, len(true_labels),
+        )
+
     logger.info("Done in %.1fs", time.time() - start)
 
 

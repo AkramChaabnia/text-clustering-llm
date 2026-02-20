@@ -38,11 +38,11 @@ def _strip_fenced_json(text: str) -> str:
     return text
 
 
-def chat(prompt, client):
+def chat(prompt, client, max_tokens: int | None = None):
     kwargs = dict(
         model=MODEL,
         temperature=TEMPERATURE,
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens if max_tokens is not None else MAX_TOKENS,
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
             {"role": "user", "content": prompt},
