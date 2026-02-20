@@ -1,3 +1,14 @@
+## v1.2.0 (2026-02-20)
+
+### Feat
+
+- **logging**: merge logging into develop
+- **logging**: replace print calls with structured logging to run.log
+- **runs**: merge run management into develop
+- **runs**: add timestamped run dirs, checkpoint/resume, and results.json
+- **package**: merge package restructure into develop
+- **package**: restructure into text_clustering package with entry points
+
 ## v1.1.0 (2026-02-20)
 
 ### Feat

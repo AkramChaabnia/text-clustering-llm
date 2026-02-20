@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -36,7 +35,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv(Path(__file__).parent / ".env", override=False)
+from text_clustering.client import make_client
+
+load_dotenv(Path(__file__).parent.parent / ".env", override=False)
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -418,10 +419,7 @@ def run_probe(model: str, verbose: bool) -> None:
     print(f"  Probing: {model}")
     print(f"{'=' * 70}")
 
-    client = OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.getenv("OPENAI_BASE_URL"),
-    )
+    client = make_client()
 
     results: list[tuple[str, str]] = []
 

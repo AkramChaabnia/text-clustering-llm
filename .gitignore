@@ -24,6 +24,7 @@ env/
 # Project outputs (generated at runtime)
 dataset/
 generated_labels/
+runs/
 logs/
 *.log
 *.jsonl.bak

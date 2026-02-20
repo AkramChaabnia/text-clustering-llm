@@ -1,6 +1,6 @@
 """
-openrouter_adapter.py
----------------------
+client.py — OpenAI-compatible client factory for OpenRouter (and any compatible provider).
+
 Thin wrapper that loads .env and returns a configured openai.OpenAI client.
 
 The original pipeline scripts call OpenAI() with no arguments and rely on
@@ -11,14 +11,14 @@ a direct OpenAI key.
 
 Usage
 -----
-    from openrouter_adapter import make_client, MODEL
+    from text_clustering.client import make_client
 
     client = make_client()
-    response = client.chat.completions.create(model=MODEL, ...)
+    response = client.chat.completions.create(model=..., ...)
 
 Run as a script to smoke-test the configuration:
 
-    python openrouter_adapter.py
+    python -m text_clustering.client
 """
 
 from __future__ import annotations
@@ -29,7 +29,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-_ROOT = Path(__file__).parent
+# __file__ is text_clustering/client.py — go one level up to reach the project root
+_ROOT = Path(__file__).parent.parent
 load_dotenv(_ROOT / ".env", override=False)
 
 
@@ -56,7 +57,8 @@ def make_client() -> OpenAI:
     )
 
 
-# Resolved at import time — scripts can do `from openrouter_adapter import MODEL`
+# Resolved at import time so other modules can do:
+#   from text_clustering.client import MODEL
 # instead of reading the env var themselves.
 MODEL: str = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
