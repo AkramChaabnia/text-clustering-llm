@@ -8,8 +8,11 @@ Functions
 prompt_construct_generate_label(sentence_list, given_labels)
     Prompt for Step 1 — propose new label names for unchategorised texts.
 
-prompt_construct_merge_label(label_list)
+prompt_construct_merge_label(label_list, target_k=None)
     Prompt for Step 1 — deduplicate/merge near-synonymous label names.
+    target_k: if provided, instructs the model to produce approximately that
+    many final labels.  Used to compensate for weaker models that don't
+    consolidate as aggressively as GPT-3.5 without an explicit target.
 
 prompt_construct_classify(label_list, sentence)
     Prompt for Step 2 — classify a single text into one of the known labels.
@@ -25,10 +28,22 @@ def prompt_construct_generate_label(sentence_list, given_labels):
     return prompt
 
 
-def prompt_construct_merge_label(label_list):
+def prompt_construct_merge_label(label_list, target_k: int | None = None):
     json_example = {"merged_labels": ["label name", "label name"]}
-    prompt = f"Please analyze the provided list of labels to identify entries that are similar or duplicate, considering synonyms, variations in phrasing, and closely related terms that essentially refer to the same concept. Your task is to merge these similar entries into a single representative label for each unique concept identified. The goal is to simplify the list by reducing redundancies without organizing it into subcategories or altering its fundamental structure. \n"
-    prompt += f"Here is the list of labels for analysis and simplification::{label_list}.\n"
+    prompt = (
+        "Please analyze the provided list of labels to identify entries that are similar or "
+        "duplicate, considering synonyms, variations in phrasing, and closely related terms "
+        "that essentially refer to the same concept. Your task is to merge these similar entries "
+        "into a single representative label for each unique concept identified. The goal is to "
+        "simplify the list by reducing redundancies without organizing it into subcategories or "
+        "altering its fundamental structure.\n"
+    )
+    if target_k is not None:
+        prompt += (
+            f"The final list should contain approximately {target_k} labels — "
+            f"merge aggressively until you reach roughly that number.\n"
+        )
+    prompt += f"Here is the list of labels for analysis and simplification: {label_list}.\n"
     prompt += f"Produce the final, simplified list in a flat, JSON-formatted structure without any substructures or hierarchical categorization like: {json_example}"
     return prompt
 

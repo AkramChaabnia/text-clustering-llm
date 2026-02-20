@@ -108,8 +108,8 @@ def label_generation(args, client, data_list, chunk_size):
     return all_labels
 
 
-def merge_labels(args, all_labels, client):
-    prompt = prompt_construct_merge_label(all_labels)
+def merge_labels(args, all_labels, client, target_k: int | None = None):
+    prompt = prompt_construct_merge_label(all_labels, target_k=target_k)
     response = chat(prompt, client, max_tokens=4096)
     try:
         response = eval(response)  # noqa: S307
@@ -144,7 +144,7 @@ def main(args):
     logger.info("Labels proposed (before merge): %d", len(all_labels))
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
-    final_labels = merge_labels(args, all_labels, client)
+    final_labels = merge_labels(args, all_labels, client, target_k=len(true_labels))
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
     logger.info("Done in %.1fs", time.time() - start)
