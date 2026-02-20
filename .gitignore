@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+# uv.lock is intentionally tracked (pinned reproducibility)
+
+# Environment / secrets — NEVER commit real keys
+.env
+# .env.example is tracked (template, no real values)
+
+# Project outputs (generated at runtime)
+dataset/
+generated_labels/
+logs/
+*.log
+*.jsonl.bak
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
