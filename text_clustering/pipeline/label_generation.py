@@ -110,7 +110,7 @@ def label_generation(args, client, data_list, chunk_size):
 
 def merge_labels(args, all_labels, client):
     prompt = prompt_construct_merge_label(all_labels)
-    response = chat(prompt, client)
+    response = chat(prompt, client, max_tokens=4096)
     try:
         response = eval(response)  # noqa: S307
         merged = []
