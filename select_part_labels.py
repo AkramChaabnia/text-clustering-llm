@@ -1,7 +1,7 @@
 import json
 import random
 import os
-import math
+# import math  # not used
 
 def find_sorted_folders(directory):
     folders = []
