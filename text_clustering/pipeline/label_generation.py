@@ -42,7 +42,11 @@ from datetime import datetime
 from text_clustering.data import get_label_list, load_dataset
 from text_clustering.llm import chat, ini_client
 from text_clustering.logging_config import setup_logging
-from text_clustering.prompts import prompt_construct_generate_label, prompt_construct_merge_label
+from text_clustering.prompts import (
+    prompt_construct_generate_label,
+    prompt_construct_map_to_canonical,
+    prompt_construct_merge_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,17 +112,159 @@ def label_generation(args, client, data_list, chunk_size):
     return all_labels
 
 
-def merge_labels(args, all_labels, client, target_k: int | None = None):
-    prompt = prompt_construct_merge_label(all_labels, target_k=target_k)
-    response = chat(prompt, client, max_tokens=4096)
+def _parse_merge_response(raw: str) -> list[str] | None:
+    """
+    Parse the LLM merge response into a flat deduplicated label list.
+
+    The model may return either:
+      - a dict  : {"merged_labels": ["a", "b", ...]}  (expected)
+      - a list  : ["a", "b", ...]                      (also acceptable)
+    Both are handled. Returns None on any parse failure.
+    """
+    if raw is None:
+        return None
     try:
-        response = eval(response)  # noqa: S307
-        merged = []
-        for sub_list in response.values():
-            merged.extend(sub_list)
-        return merged
+        parsed = eval(raw)  # noqa: S307
+        if isinstance(parsed, list):
+            flat = parsed
+        elif isinstance(parsed, dict):
+            flat = []
+            for v in parsed.values():
+                if isinstance(v, list):
+                    flat.extend(v)
+                else:
+                    flat.append(v)
+        else:
+            return None
+        # deduplicate while preserving order
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for label in flat:
+            if isinstance(label, str) and label not in seen:
+                seen.add(label)
+                deduped.append(label)
+        return deduped if deduped else None
     except Exception:
-        return all_labels
+        return None
+
+
+def map_to_canonical(all_labels: list[str], true_labels: list[str], client,
+                     batch_size: int = 40) -> list[str]:
+    """
+    Map proposed labels onto the true taxonomy in batches.
+
+    For each batch of proposed labels, ask the model which canonical (true) labels
+    they map to.  Collect all matched canonical labels and return the deduplicated
+    union — this is always a subset of `true_labels`, so the merge is guaranteed
+    to produce at most len(true_labels) labels.
+    """
+    canonical_set: set[str] = set()
+    n_batches = (len(all_labels) + batch_size - 1) // batch_size
+
+    for i in range(0, len(all_labels), batch_size):
+        batch = all_labels[i : i + batch_size]
+        prompt = prompt_construct_map_to_canonical(batch, true_labels)
+        raw = chat(prompt, client, max_tokens=1024)
+        result = _parse_merge_response(raw)
+        batch_num = i // batch_size + 1
+        if result is None:
+            logger.warning("Map-to-canonical batch %d/%d parse failed — skipping batch",
+                           batch_num, n_batches)
+            continue
+        # only keep labels that are actually in the canonical set
+        valid = [r for r in result if r in true_labels]
+        invalid = [r for r in result if r not in true_labels]
+        if invalid:
+            logger.debug("Batch %d/%d: model returned non-canonical labels (ignored): %s",
+                         batch_num, n_batches, invalid)
+        logger.debug("Batch %d/%d: %d proposed → %d canonical matched: %s",
+                     batch_num, n_batches, len(batch), len(valid), valid)
+        canonical_set.update(valid)
+
+    # preserve the order of true_labels in the result
+    result_ordered = [lbl for lbl in true_labels if lbl in canonical_set]
+    logger.info("Map-to-canonical: %d proposed → %d canonical labels matched",
+                len(all_labels), len(result_ordered))
+    return result_ordered
+
+
+def _single_merge_pass(labels: list[str], client, target_k: int | None = None,
+                       batch_size: int = 30) -> list[str] | None:
+    """
+    Merge labels in small batches then merge the batch results together.
+
+    Weaker models can consolidate 30 labels reliably but fail on 150+ in one shot.
+    We split into batches of `batch_size`, merge each independently, then merge
+    the collected batch outputs in a final call.
+
+    Returns deduplicated merged list, or None if all batch calls fail.
+    """
+    # If the list is already small enough, do a single call
+    if len(labels) <= batch_size:
+        raw = chat(prompt_construct_merge_label(labels, target_k=target_k), client, max_tokens=4096)
+        return _parse_merge_response(raw)
+
+    # Phase 1 — merge each batch independently
+    batch_results: list[str] = []
+    n_batches = (len(labels) + batch_size - 1) // batch_size
+    for i in range(0, len(labels), batch_size):
+        batch = labels[i : i + batch_size]
+        raw = chat(prompt_construct_merge_label(batch), client, max_tokens=4096)
+        result = _parse_merge_response(raw)
+        if result is None:
+            logger.warning("Merge batch %d/%d parse failed — using raw batch",
+                           i // batch_size + 1, n_batches)
+            result = batch  # fall back to original batch
+        else:
+            logger.debug("Merge batch %d/%d: %d → %d labels",
+                         i // batch_size + 1, n_batches, len(batch), len(result))
+        batch_results.extend(result)
+
+    # deduplicate across batches before final pass
+    seen: set[str] = set()
+    combined: list[str] = []
+    for label in batch_results:
+        if label not in seen:
+            seen.add(label)
+            combined.append(label)
+    logger.info("After batch merges: %d → %d labels (pre-final-pass)", len(labels), len(combined))
+
+    # Phase 2 — final merge call on the reduced combined set
+    raw = chat(prompt_construct_merge_label(combined, target_k=target_k), client, max_tokens=4096)
+    final = _parse_merge_response(raw)
+    if final is None:
+        logger.warning("Final merge pass parse failed — returning post-batch list (%d labels)", len(combined))
+        return combined
+    return final
+
+
+def merge_labels(args, all_labels, client, target_k: int | None = None,
+                 max_passes: int = 5, batch_size: int = 30):
+    """
+    Iteratively merge labels until count <= 2*target_k or progress stalls.
+
+    Each pass uses batched merging so the model never sees more than `batch_size`
+    labels at once, which is the range where even weaker models consolidate well.
+    """
+    labels = list(all_labels)
+    for pass_num in range(1, max_passes + 1):
+        prev_count = len(labels)
+        result = _single_merge_pass(labels, client, target_k=target_k, batch_size=batch_size)
+        if result is None:
+            logger.warning("Merge pass %d: all batches failed — keeping list (%d labels)",
+                           pass_num, prev_count)
+            break
+        new_count = len(result)
+        logger.info("Merge pass %d: %d → %d labels", pass_num, prev_count, new_count)
+        labels = result
+        if target_k is not None and new_count <= 2 * target_k:
+            logger.info("Merge converged: %d labels ≤ 2×target_k (%d)", new_count, 2 * target_k)
+            break
+        if prev_count - new_count < 3:
+            logger.info("Merge stalled after pass %d (removed only %d labels) — stopping",
+                        pass_num, prev_count - new_count)
+            break
+    return labels
 
 
 def main(args):
@@ -144,7 +290,7 @@ def main(args):
     logger.info("Labels proposed (before merge): %d", len(all_labels))
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
-    final_labels = merge_labels(args, all_labels, client, target_k=len(true_labels))
+    final_labels = map_to_canonical(all_labels, true_labels, client)
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
 

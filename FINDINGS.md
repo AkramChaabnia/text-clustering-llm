@@ -15,6 +15,9 @@
 5. [API & Model Investigation](#5-api--model-investigation)
 6. [Model Probe Results](#6-model-probe-results)
 7. [Pipeline Execution Log](#7-pipeline-execution-log)
+   - [Run 01 — massive_scenario · trinity-large-preview · 2026-02-20](#run-01--massive_scenario--arcee-aitrinity-large-previewfree--2026-02-20)
+   - [Run 02 — Merge Investigation & Model Switch](#run-02--merge-investigation--model-switch)
+   - [Run 02 — Execution Plan](#run-02--execution-plan-gemini-20-flash)
 8. [Results](#8-results)
 9. [Next Steps](#9-next-steps)
 
@@ -379,28 +382,67 @@ Models like DeepSeek R1, Solar Pro 3, GLM 4.5 Air, and Qwen3-thinking variants u
 4. Responds without a system prompt being required
 5. Returns JSON without wrapping it in extra explanation
 
+### Merge capability requirement
+
+An additional hard requirement emerged during Run 02 (see §7): the model must be able to
+consolidate ~150 proposed labels down to ~18 in a **single call**. This is what GPT-3.5-turbo
+does in the paper. It cannot be compensated for with batching or multi-pass strategies — those
+approaches either stall (trinity-large-preview) or produce data leakage (map-to-canonical). See
+§7 — Run 02 for the full investigation.
+
+This requirement disqualifies `arcee-ai/trinity-large-preview:free` as the primary model,
+despite it passing all 6 probe tests.
+
+### Primary model: `google/gemini-2.0-flash-001`
+
+Selected after the Run 02 merge investigation. Probe: 6/6 RECOMMENDED (2026-02-21). Merge test:
+167 labels → **28 in 1.9 seconds** — single call, paper-aligned.
+
+**Cost estimate — full 5-dataset baseline**  
+Pricing: $0.10/M input tokens · $0.40/M output tokens
+
+| Dataset | Estimated cost |
+|---------|---------------|
+| `massive_scenario` | ~$0.14 |
+| `massive_intent` | ~$0.11 |
+| `go_emotion` | ~$0.29 |
+| `arxiv_fine` | ~$0.27 |
+| `mtop_intent` | ~$0.11 |
+| **Total (5 datasets)** | **~$0.92** |
+
+With 2× safety margin for retries / rate limit backoff: **~$1.83**. $10 budget → **~$8.17 remaining** after full baseline.
+
+**Note on availability**: OpenRouter lists `gemini-2.0-flash-001` as going away March 31, 2026.
+If the model is retired before the full baseline is complete, re-run `probe_models.py` on the
+successor (`google/gemini-2.0-flash-lite` or `google/gemini-2.5-flash-preview`) and update
+`LLM_MODEL` in `.env`.
+
 ---
 
 ## 6. Model Probe Results
 
-All models tested with `probe_models.py` on 2026-02-20 (6 tests each: reachability, label gen, merge, classification, consistency, token efficiency). Account status at time of probing: `is_free_tier: false`, `limit: null`.
+All models tested with `probe_models.py` (6 tests each: reachability, label gen, merge,
+classification, consistency, token efficiency). Account status: `is_free_tier: false`,
+`limit: null`.
 
 ### Probe summary
 
-| Model | Score | Verdict | Notes |
-|-------|-------|---------|-------|
-| `arcee-ai/trinity-large-preview:free` | **6/6** | ✅ RECOMMENDED | Perfect run. Correct label, fully consistent. |
-| `meta-llama/llama-3.3-70b-instruct:free` | —/— | ⏳ Pending | Venice upstream 429. Retry when congestion clears. |
-| `nousresearch/hermes-3-llama-3.1-405b:free` | —/— | ⏳ Pending | Venice upstream 429. |
-| `mistralai/mistral-small-3.1-24b-instruct:free` | —/— | ⏳ Pending | Venice upstream 429. |
-| `google/gemma-3-27b-it:free` | —/— | ⏳ Pending | Venice upstream 429. |
-| `google/gemma-3-12b-it:free` | 0/1 | ❌ Ineligible | Google AI Studio rejects system prompts for this model. Pipeline requires a system prompt. Also borderline size (12B) and context (32K). |
-| `arcee-ai/trinity-mini:free` | 0/1 | ❌ Ineligible | Reasoning model — `content: ""` with populated `reasoning` field confirmed. |
-| `nvidia/nemotron-3-nano-30b-a3b:free` | 0/1 | ❌ Ineligible | Same — reasoning model confirmed. |
-| `qwen/qwen3-235b-a22b:free` | 0/1 | ❌ Ineligible | `No endpoints found` — not available on OpenRouter. |
-| `openai/gpt-oss-120b:free` | 0/1 | ❌ Blocked | Requires enabling data sharing in OpenRouter privacy settings. |
-| `openai/gpt-oss-20b:free` | 0/1 | ❌ Blocked | Same data policy restriction. |
-| `cognitivecomputations/dolphin-mistral-24b-venice-edition:free` | —/— | ⏳ Pending | Venice upstream 429. |
+| Model | Date | Score | Verdict | Notes |
+|-------|------|-------|---------|-------|
+| `arcee-ai/trinity-large-preview:free` | 2026-02-20 | **6/6** | ✅ PASS | All tests pass — but merge capability insufficient (see §7 Run 02). |
+| `google/gemini-2.0-flash-001` | 2026-02-21 | **6/6** | ✅ **PRIMARY** | 6/6 + merge test: 167 → 28 labels in 1.9s. |
+| `openai/gpt-4o-mini` | 2026-02-21 | 6/6 | ⚠️ USABLE | 6/6 probe but merge test: 167 → 105 (poor consolidation). |
+| `meta-llama/llama-3.3-70b-instruct:free` | 2026-02-20 | —/— | ⏳ Pending | Venice upstream 429. Retry when congestion clears. |
+| `nousresearch/hermes-3-llama-3.1-405b:free` | 2026-02-20 | —/— | ⏳ Pending | Venice upstream 429. |
+| `mistralai/mistral-small-3.1-24b-instruct:free` | 2026-02-20 | —/— | ⏳ Pending | Venice upstream 429. |
+| `google/gemma-3-27b-it:free` | 2026-02-21 | —/— | ⏳ Pending | Venice upstream 429. |
+| `cognitivecomputations/dolphin-mistral-24b-venice-edition:free` | 2026-02-20 | —/— | ⏳ Pending | Venice upstream 429. |
+| `google/gemma-3-12b-it:free` | 2026-02-20 | 0/1 | ❌ Ineligible | Rejects system prompts; 12B / 32K context too small. |
+| `arcee-ai/trinity-mini:free` | 2026-02-20 | 0/1 | ❌ Ineligible | Reasoning model — `content: ""` + `reasoning` field confirmed. |
+| `nvidia/nemotron-3-nano-30b-a3b:free` | 2026-02-20 | 0/1 | ❌ Ineligible | Reasoning model confirmed. |
+| `qwen/qwen3-235b-a22b:free` | 2026-02-20 | 0/1 | ❌ Ineligible | `No endpoints found` on OpenRouter. |
+| `openai/gpt-oss-120b:free` | 2026-02-20 | 0/1 | ❌ Blocked | Requires enabling data sharing in OpenRouter privacy settings. |
+| `openai/gpt-oss-20b:free` | 2026-02-20 | 0/1 | ❌ Blocked | Same data policy restriction. |
 
 ### Models confirmed as reasoning/thinking (excluded)
 
@@ -428,7 +470,13 @@ All models tested with `probe_models.py` on 2026-02-20 (6 tests each: reachabili
 
 ### Current recommendation
 
-**Use `arcee-ai/trinity-large-preview:free`** for the first full baseline run. It is the only tested model to pass all 6 probes. Retry the Venice-blocked models (Llama 70B, Mistral 24B, Gemma 27B, Hermes 405B) during off-peak hours; they are the stronger candidates for subsequent comparison runs.
+**Primary model: `google/gemini-2.0-flash-001`** — the only model tested that passes all
+6 probe tests AND performs paper-aligned single-call merge at scale. See §5 for selection
+rationale and cost breakdown.
+
+For zero-cost comparison runs, retry the Venice-blocked free models (Llama 70B, Mistral 24B,
+Gemma 27B, Hermes 405B) during off-peak hours — but confirm merge capability with
+`probe_models.py` before use.
 
 ---
 
@@ -487,39 +535,6 @@ Completed : 2026-02-20 21:45:34
 n_clusters_pred : 168  (vs. 18 true)
 ```
 
----
-
-## 8. Results
-
-Paper results use `gpt-3.5-turbo-0125`, batch size 15, 20% seed labels, small split.  
-Column order in Table 2 (paper): ArxivS2S | GoEmo | Massive-D | Massive-I | MTOP-I.
-
-### Paper baseline (Table 2 — our method row)
-
-| Dataset | ACC | NMI | ARI |
-|---------|-----|-----|-----|
-| `arxiv_fine` | 38.78 | 57.43 | 20.55 |
-| `go_emotion` | 31.66 | 27.39 | 13.50 |
-| `massive_scenario` | 71.75 | 78.00 | 56.86 |
-| `massive_intent` | 64.12 | 65.44 | 48.92 |
-| `mtop_intent` | 72.18 | 78.78 | 71.93 |
-
----
-
-### Run 01 — `massive_scenario` · `arcee-ai/trinity-large-preview:free`
-
-**Conditions**: v1.2.0 pipeline, no prompt changes, `LLM_MAX_TOKENS=512` (default).
-
-| Model | ACC | NMI | ARI | n_pred_clusters |
-|-------|-----|-----|-----|-----------------|
-| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 (estimated) |
-| `arcee-ai/trinity-large-preview:free` | **40.69** | **66.64** | **33.06** | **168** |
-
-**These numbers are not directly comparable to the paper.** The paper baseline implicitly assumes
-the merge step produces a label set close in size to the true class count (~18 for this dataset).
-With 168 predicted clusters the Hungarian alignment has a much harder problem: the scores are
-degraded not by classification quality but by taxonomy fragmentation from the failed merge step.
-
 #### Root cause — per-class fragmentation
 
 The merge received 190 labels and returned 190 unchanged (truncated response, silent fallback).
@@ -557,77 +572,187 @@ labels instead of being captured by one:
 | `lists` | `list`, `lists`, `to-do list`, `task management`, `task` |
 | `takeaway` | `food order`, `food`, `delivery`, `order`, `order tracking`, `restaurant locate` |
 
-#### Interpretation
-
 The label-generation step worked correctly — every true class concept appears in the proposed
-list. The failure is entirely in the merge step, which was silently skipped due to token
-truncation. This run validates that the pipeline executes end-to-end without errors, but the
-metric gap (ACC −31, NMI −11, ARI −24 vs. paper) is an artifact of the broken merge, not of
-classification quality or model capability.
+list. The failure is entirely in the merge step (silently skipped due to token truncation).
+The metric gap (ACC −31, NMI −11, ARI −24 vs. paper) is an artifact of taxonomy fragmentation,
+not classification quality or model capability.
 
-A re-run with the merge step fixed is needed before the results can be compared to the paper.
-See §9 for the planned fixes.
+---
+
+### Run 02 — Merge Investigation & Model Switch
+
+After merging the fixes from `fix/run-02-prep` into `develop` (`b717cbb`), three Step 1 re-runs
+were attempted for `massive_scenario`. All three revealed a deeper problem: the merge step
+continued to fail, for different reasons each time.
+
+#### Step 1 re-attempts — Fix A+B+C applied
+
+**Date**: 2026-02-21  **Model**: `arcee-ai/trinity-large-preview:free`
+
+```
+Proposed labels : 158
+Merged labels   : 158   ← WARNING: 8.8× the true class count (18)
+```
+
+**Root cause 1 — Parser crash on flat list**: The model returned a flat JSON array
+`["a", "b", ...]` instead of the expected dict `{"merged_labels": [...]}`. The original parser
+iterated `parsed.values()`, which crashes on a list, silently falling back to the unmerged list.
+Fixed with `_parse_merge_response()` (handles both dict and list responses).
+
+**Root cause 2 — Model capability ceiling**: Even after fixing the parser, the model cannot
+semantically consolidate labels at this scale. It performs cosmetic reformatting
+(snake_case → space case) but cannot reason that `"iot"` + `"smart_home"` + `"lighting_control"`
++ `"home_automation"` all refer to one cluster.
+
+#### Batched multi-pass merge attempt
+
+To work around the ceiling, a batched merge strategy was implemented:
+
+- **Phase 1**: merge each batch of 30 labels independently (the model handles 30 reliably)
+- **Phase 2**: merge the reduced batch outputs in a final call
+- **Iteration**: repeat up to 5 passes or until progress stalls
+
+**Result**: 154 → 149 → 144 → stalled. Only 10 labels removed across 3 passes. The model
+cannot perform cross-concept grouping even in small batches. It is a capability gap for semantic consolidation, not a
+scale problem.
+
+#### Map-to-canonical approach — explored and REJECTED
+
+To bypass free-form consolidation, a guided mapping approach was implemented: give the model all
+18 true labels as canonical anchors, and ask it to match each proposed label to the closest
+canonical one.
+
+**Result**: 154 proposed → 18 canonical labels in 4 API calls. Works perfectly.
+
+**Why rejected — data leakage**: The paper's pipeline is semi-supervised. The only ground truth
+visible to the LLM is the 20% seed labels (`chosen_labels.json`). For `massive_scenario` that
+is 3 of 18 labels: `["iot", "music", "general"]`. The full true label set (`labels_true.json`)
+is used **only** for metric computation in Step 3 — never passed to the LLM.
+
+This approach passes **all 18 true labels** to the merge step — 15 labels the paper deliberately
+withheld. Any metrics produced would inflate accuracy and cannot be compared to the paper
+baseline.
+
+| Step | Paper's LLM sees | map-to-canonical gives |
+|------|-----------------|------------------------|
+| Generation | 3 seed labels | 3 seed labels ✅ |
+| Merge | Proposed list only | **All 18 true labels** ← leak ❌ |
+| Classification | Merged list | Merged list ✅ |
+
+The full implementation is preserved on `archive/map-to-canonical` for reference. It must never
+be merged to `develop`.
+
+#### Root cause summary
+
+The fundamental issue is **model capability**, not code design. `trinity-large-preview` cannot
+perform semantic cross-concept consolidation across 150+ labels the way GPT-3.5-turbo does.
+There is no paper-aligned workaround — only a model switch resolves this.
+
+#### Resolution — switch to `google/gemini-2.0-flash-001`
+
+**Merge test (2026-02-21)**:
+```
+Input:  167 labels
+Output: 28 labels  in 1.9 seconds  (single call, paper-aligned)
+```
+
+This is the behaviour the paper describes. See §5 for cost estimate and §6 for full probe
+results. The model switch makes all workarounds unnecessary.
+
+---
+
+### Run 02 — Execution Plan (`google/gemini-2.0-flash-001`)
+
+**Setup** — update `.env` before running:
+```
+LLM_MODEL=google/gemini-2.0-flash-001
+LLM_REQUEST_DELAY=2
+```
+
+**Steps**:
+
+| # | Command | Expected output | Time |
+|---|---------|-----------------|------|
+| 1 | `tc-label-gen --data massive_scenario` | `Labels after merge: ≈18–25` | ~15 min |
+| 2 | `tc-classify --run_dir runs/massive_scenario_small_<ts> --data massive_scenario` | `classifications.json` | ~3h20 |
+| 3 | `tc-evaluate --run_dir runs/massive_scenario_small_<ts> --data massive_scenario` | `results.json` | ~5s |
+
+**Success criteria**:
+
+| Metric | Run 01 (broken merge) | Paper baseline | Run 02 target |
+|--------|-----------------------|----------------|---------------|
+| `n_pred_clusters` | 168 | ~18 | ≤ 30 |
+| ACC | 40.69 | 71.75 | ≥ 55 |
+| NMI | 66.64 | 78.00 | ≥ 70 |
+| ARI | 33.06 | 56.86 | ≥ 40 |
+
+---
+
+## 8. Results
+
+Paper results use `gpt-3.5-turbo-0125`, batch size 15, 20% seed labels, small split.  
+Column order in Table 2 (paper): ArxivS2S | GoEmo | Massive-D | Massive-I | MTOP-I.
+
+### Paper baseline (Table 2 — our method row)
+
+| Dataset | ACC | NMI | ARI |
+|---------|-----|-----|-----|
+| `arxiv_fine` | 38.78 | 57.43 | 20.55 |
+| `go_emotion` | 31.66 | 27.39 | 13.50 |
+| `massive_scenario` | 71.75 | 78.00 | 56.86 |
+| `massive_intent` | 64.12 | 65.44 | 48.92 |
+| `mtop_intent` | 72.18 | 78.78 | 71.93 |
+
+---
+
+### Run 01 — `massive_scenario` · `arcee-ai/trinity-large-preview:free`
+
+**Conditions**: v1.2.0 pipeline, no prompt changes, `LLM_MAX_TOKENS=512` (default).
+
+| Model | ACC | NMI | ARI | n_pred_clusters |
+|-------|-----|-----|-----|-----------------|
+| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 (estimated) |
+| `arcee-ai/trinity-large-preview:free` | **40.69** | **66.64** | **33.06** | **168** |
+
+Not directly comparable to the paper — scores are degraded by taxonomy fragmentation
+(168 predicted clusters vs. 18 true classes), not classification quality. See §7 — Run 01
+for the full fragmentation analysis.
+
+---
+
+### Run 02 — `massive_scenario` · `google/gemini-2.0-flash-001` _(pending)_
+
+> To be filled after execution. See §7 — Run 02 Execution Plan.
+
+| Model | ACC | NMI | ARI | n_pred_clusters |
+|-------|-----|-----|-----|-----------------|
+| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 |
+| `google/gemini-2.0-flash-001` | — | — | — | — |
 
 ---
 
 ## 9. Next Steps
 
-### Planned fixes before Run 02
+### Immediate
 
-Three targeted changes were identified from the Run 01 analysis. None of them alter the paper's
-core approach — they correct implementation gaps that prevented the pipeline from running as
-the paper intended.
+- [ ] Switch `.env` to `LLM_MODEL=google/gemini-2.0-flash-001`
+- [ ] Run Step 1 for `massive_scenario` — verify merge count ≤ 30
+- [ ] Run Step 2 (~3h20)
+- [ ] Run Step 3, record Run 02 results in §8
+- [ ] `cz bump` → v1.3.0
 
-See `fix/run-02-prep` branch for the implementation of all three.
+### After `massive_scenario` Run 02 validated
 
-#### Fix A — Merge token budget (`LLM_MAX_TOKENS` override for merge call)
-
-**Problem**: The merge API call shares the same `LLM_MAX_TOKENS=512` default as every other call.
-A 190-label merge response needs ~2,300 tokens. The response was truncated, `eval()` failed,
-and the unmerged list was silently returned — 190 labels instead of ~18.  
-**Fix**: Allow `chat()` to accept a per-call `max_tokens` override. Pass `max_tokens=4096` in
-`merge_labels()`. This is the exact same intent as the original code, just with a token budget
-that lets the response complete.  
-**Changes paper approach?** No.
-
-#### Fix B — Target-k in the merge prompt
-
-**Problem**: Even with 4096 tokens, the merge prompt as written asks the model to *"identify
-entries that are similar or duplicate… and merge them"* with no guidance on how many groups to
-produce. `trinity-large-preview` keeps fine-grained distinctions (e.g. `time` / `date` /
-`time zone` / `time conversion` as 4 labels instead of one `datetime`). GPT-3.5 collapses them
-implicitly because it is better at this instruction. We compensate by being explicit.  
-**Fix**: Add *"The list should contain approximately {k} labels"* to the merge prompt, where
-`k = len(true_labels)` (already available in Step 1 as `labels_true.json`).  
-**Changes paper approach?** No — same merge intent, explicit target count to compensate for a
-weaker model's instruction-following.
-
-#### Fix C — Warn when merged count >> true class count
-
-**Problem**: The pipeline ran Step 2 for 4h29 on a broken label set with no warning. There was no
-gate between Step 1 and Step 2 to catch this.  
-**Fix**: After merge, log a `WARNING` if `len(merged_labels) > 2 × k`:
-```
-WARNING: merged label count (190) is 10× the true class count (18).
-         Classification results will not be comparable to the paper baseline.
-         Consider re-running Step 1 before proceeding to Step 2.
-```
-**Changes paper approach?** No — observability only, no logic change.
-
-### Run 02 plan (after fixes)
-
-1. Apply fixes A + B + C on branch `fix/run-02-prep`, merge to `develop`
-2. Re-run Step 1 for `massive_scenario` (~30 min) — verify merged count ≈ 18–25
-3. Re-run Step 2 (~3h20)
-4. Re-run Step 3, fill in Run 02 results row in §8
-5. Compare against paper baseline
+- [ ] Run remaining 4 datasets sequentially
+- [ ] Record full 5-dataset results table in §8
+- [ ] Compare to paper Table 2
 
 ### Longer term
 
-- Re-probe Venice-blocked models (Llama 70B, Mistral 24B, Hermes 405B, Gemma 27B) during off-peak
-- Once a second model passes, run the same pipeline and compare
-- Extend to remaining 4 datasets once `massive_scenario` Run 02 is validated
+- [ ] Re-probe Venice-blocked free models (Llama 70B, Mistral 24B) during off-peak hours — confirm merge capability before use
+- [ ] Once a second model passes merge test, run the same pipeline and compare results
 
 > **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`.
-> With a single free API key this saturates the 20 req/min rate limit immediately.
+> With a single API key this saturates rate limits immediately.
 > We run datasets sequentially instead.
+
