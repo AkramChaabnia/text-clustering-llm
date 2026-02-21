@@ -17,7 +17,8 @@
 7. [Pipeline Execution Log](#7-pipeline-execution-log)
    - [Run 01 — massive_scenario · trinity-large-preview · 2026-02-20](#run-01--massive_scenario--arcee-aitrinity-large-previewfree--2026-02-20)
    - [Run 02 — Merge Investigation & Model Switch](#run-02--merge-investigation--model-switch)
-   - [Run 02 — Execution Plan](#run-02--execution-plan-gemini-20-flash)
+   - [Run 02 — `massive_scenario` · gemini-2.0-flash-001 · `target_k=18` · 2026-02-21](#run-02--massive_scenario--googlegemini-20-flash-001--target_k18--2026-02-21)
+   - [Run 03 — `massive_scenario` · gemini-2.0-flash-001 · no `target_k` · 2026-02-21](#run-03--massive_scenario--googlegemini-20-flash-001--no-target_k--2026-02-21)
 8. [Results](#8-results)
 9. [Next Steps](#9-next-steps)
 
@@ -661,30 +662,138 @@ results. The model switch makes all workarounds unnecessary.
 
 ---
 
-### Run 02 — Execution Plan (`google/gemini-2.0-flash-001`)
+### Run 02 — `massive_scenario` · `google/gemini-2.0-flash-001` · `target_k=18` · 2026-02-21
 
-**Setup** — update `.env` before running:
+First full end-to-end run with gemini. `target_k=len(true_labels)` passed to the merge prompt
+as a legacy workaround (later removed — see Run 03 for the investigation).
+
+**Run directory**: `runs/massive_scenario_small_20260221_035641/`  
+**Commit**: `fix/model-gemini-flash` @ `333ce12`
+
+#### Step 1 — label generation ✅
+
 ```
-LLM_MODEL=google/gemini-2.0-flash-001
-LLM_REQUEST_DELAY=2
+Started   : 2026-02-21 03:56:41
+Completed : 2026-02-21 04:06:45  (604 s ≈ 10.1 min)
+API calls : 200  (199 label-gen batches + 1 merge call)
+Errors    : 0
+Proposed  : 352 labels  (343 unique after dedup)
+Merged    : 18 labels   (target_k=18 passed to merge prompt)
+True k    : 18
 ```
 
-**Steps**:
+The 352 proposed labels showed the expected fragmentation across synonym groups:
+20 time variants, 17 music variants, 17 email/comm variants, 16 iot/home variants.
+Gemini collapsed all of them to 18 in a single merge call (~3s), which is the paper-aligned
+behaviour. The merge produced no parse errors.
 
-| # | Command | Expected output | Time |
-|---|---------|-----------------|------|
-| 1 | `tc-label-gen --data massive_scenario` | `Labels after merge: ≈18–25` | ~15 min |
-| 2 | `tc-classify --run_dir runs/massive_scenario_small_<ts> --data massive_scenario` | `classifications.json` | ~3h20 |
-| 3 | `tc-evaluate --run_dir runs/massive_scenario_small_<ts> --data massive_scenario` | `results.json` | ~5s |
+**Merged label set** (18 labels):
 
-**Success criteria**:
+```json
+["general_information", "time_and_date", "events_and_calendar", "food_and_drink",
+ "music_and_audio", "movies_and_tv", "shopping_and_orders", "travel_and_transportation",
+ "home_automation", "communication", "personal_management", "finance_and_investments",
+ "health_and_wellbeing", "news_and_social_media", "jokes_and_entertainment",
+ "search_and_recommendations", "device_control", "location_and_navigation"]
+```
 
-| Metric | Run 01 (broken merge) | Paper baseline | Run 02 target |
-|--------|-----------------------|----------------|---------------|
-| `n_pred_clusters` | 168 | ~18 | ≤ 30 |
-| ACC | 40.69 | 71.75 | ≥ 55 |
-| NMI | 66.64 | 78.00 | ≥ 70 |
-| ARI | 33.06 | 56.86 | ≥ 40 |
+**Label quality audit** (18 merged vs. 18 true):
+
+| Status | Count | Labels |
+|--------|-------|--------|
+| ✅ Good semantic match | 10 | `general_information` → qa+general; `time_and_date` → datetime; `events_and_calendar` → calendar; `food_and_drink` → takeaway+cooking; `music_and_audio` → music+audio+play; `travel_and_transportation` → transport; `home_automation` → iot; `communication` → email+social; `personal_management` → alarm+lists; `shopping_and_orders` → lists |
+| ⚠️ Overlap (duplicate concept) | 4 | `news_and_social_media` (∥ communication), `search_and_recommendations` (∥ general_information), `device_control` (∥ home_automation), `location_and_navigation` (∥ transport) |
+| 🔴 Spurious (no true counterpart) | 4 | `movies_and_tv`, `finance_and_investments`, `health_and_wellbeing`, `jokes_and_entertainment` |
+
+**Missing**: `weather` — present in proposed labels but dropped by the merge. 156 weather
+samples (an entire true class) were later scattered across `general_information` (78%),
+`location_and_navigation` (8%), and `time_and_date` (6%).
+
+Root cause: forcing `target_k=18` compelled gemini to fill all 18 slots. With 4 spurious
+labels occupying slots, `weather` had no slot to land in and was absorbed into the nearest
+neighbor during classification.
+
+#### Step 2 — classification ✅
+
+```
+Started   : 2026-02-21 04:18:15
+Completed : 2026-02-21 06:26:49  (7,714 s ≈ 2h09)
+Samples   : 2,974  (one API call each)
+Errors    : 0
+```
+
+#### Step 3 — evaluation ✅
+
+```
+Completed : 2026-02-21 13:54:01
+```
+
+**Per-cluster purity highlights**:
+
+| Predicted cluster | Size | Purity | Dominant true label |
+|-------------------|------|--------|---------------------|
+| `home_automation` | 192 | 0.958 | iot: 96% |
+| `communication` | 260 | 0.900 | email: 90% |
+| `travel_and_transportation` | 110 | 0.855 | transport: 85% |
+| `events_and_calendar` | 388 | 0.838 | calendar: 84% |
+| `music_and_audio` | 405 | 0.800 | play: 80% |
+| `general_information` | 454 | 0.416 | qa: 42%, weather: 27% ← catch-all |
+| `time_and_date` | 184 | 0.538 | datetime: 54%, alarm: 33% ← split |
+| `search_and_recommendations` | 65 | 0.292 | scattered ← lowest purity |
+
+**Most fragmented true class**: `recommendation` — spread across 5 predicted clusters, best
+concentration only 32%.
+
+---
+
+### Run 03 — `massive_scenario` · `google/gemini-2.0-flash-001` · no `target_k` · 2026-02-21
+
+After the code audit (§4 fix 8), `target_k` was removed from the default merge call to restore
+paper-faithful behaviour. This run tests whether gemini consolidates aggressively enough
+without a target anchor.
+
+**Run directory**: `runs/massive_scenario_small_20260221_150023/`  
+**Commit**: `fix/model-gemini-flash` @ `9cef357`  
+**Steps completed**: Step 1 only (run aborted after inspecting merge output).
+
+#### Step 1 — label generation ✅ / merge ❌
+
+```
+Proposed  : 343 labels
+Merged    : 311 labels   ← only 32 labels removed (1.1× reduction)
+True k    : 18
+```
+
+Without a `target_k` anchor, gemini treated the merge as **light deduplication** instead of
+aggressive semantic consolidation. It removed near-identical surface duplicates
+(`movie`/`movies`, `email`/`emails`, `restaurant`/`restaurants`) but left all major synonym
+groups intact:
+
+| Synonym group | Surviving variants in merged output |
+|---------------|-------------------------------------|
+| music | 15: `music`, `song`, `playlist`, `music_playback`, `music_control`, `music_streaming`, … |
+| time | 11: `time`, `date`, `datetime`, `time_and_date`, `timer`, `time_conversion`, … |
+| calendar/meeting | 9: `calendar`, `schedule`, `meeting`, `meeting_scheduling`, `calendar_management`, … |
+| search/query | 9: `search`, `query`, `queries`, `search_engine`, `search_query`, … |
+| iot/home | 8: `iot`, `home_automation`, `lights`, `lighting`, `automation`, `device_control`, … |
+
+**Step 2 and Step 3 were not run** — a 311-cluster classification would produce metrics even
+worse than Run 01 (168 clusters) and cost ~$0.50 with no scientific value.
+
+#### Conclusion
+
+The paper's approach requires the LLM to know the target granularity. GPT-3.5-turbo was able
+to consolidate without an explicit target likely because the paper's prompt tuning or its
+training data aligned well with the 15-class semantic space. Gemini-2.0-flash, despite being
+a stronger model, interprets the prompt conservatively without guidance.
+
+**Decision**: `target_k` must remain the default for this pipeline. It is not a "weak model
+workaround" — it is a necessary semantic anchor for any model when the proposed label count is
+in the hundreds. The `--target_k` CLI flag is now mandatory for comparable results.
+
+A follow-up iteration (`fix/merge-prompt-v2`) will redesign the merge prompt to be more
+inherently aggressive without relying on a numeric target, using stronger consolidation
+language and few-shot examples. See §9 Next Steps.
 
 ---
 
@@ -705,45 +814,58 @@ Column order in Table 2 (paper): ArxivS2S | GoEmo | Massive-D | Massive-I | MTOP
 
 ---
 
-### Run 01 — `massive_scenario` · `arcee-ai/trinity-large-preview:free`
+### `massive_scenario` · small split — all runs
 
-**Conditions**: v1.2.0 pipeline, no prompt changes, `LLM_MAX_TOKENS=512` (default).
+| Run | Model | target_k | n_pred | ACC | NMI | ARI | Status |
+|-----|-------|----------|--------|-----|-----|-----|--------|
+| Paper | `gpt-3.5-turbo-0125` | implicit | ~18 | **71.75** | **78.00** | **56.86** | Reference |
+| Run 01 | `trinity-large-preview:free` | — | **168** | 40.69 | 66.64 | 33.06 | ❌ Broken merge (token truncation) |
+| Run 02 | `gemini-2.0-flash-001` | 18 | **18** | **60.46** | **63.90** | **53.87** | ✅ Valid |
+| Run 03 | `gemini-2.0-flash-001` | none | — | — | — | — | ⚠️ Step 1 only — merge failed (311 labels) |
 
-| Model | ACC | NMI | ARI | n_pred_clusters |
-|-------|-----|-----|-----|-----------------|
-| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 (estimated) |
-| `arcee-ai/trinity-large-preview:free` | **40.69** | **66.64** | **33.06** | **168** |
+#### Run 02 vs. paper gap analysis
 
-Not directly comparable to the paper — scores are degraded by taxonomy fragmentation
-(168 predicted clusters vs. 18 true classes), not classification quality. See §7 — Run 01
-for the full fragmentation analysis.
+| Metric | Run 02 | Paper | Gap | Notes |
+|--------|--------|-------|-----|-------|
+| ACC | 60.46 | 71.75 | −11.29 | 4 spurious labels + missing `weather` cluster |
+| NMI | 63.90 | 78.00 | −14.10 | Overlapping merged labels split true classes |
+| ARI | **53.87** | **56.86** | **−2.99** | Near-paper — cluster structure nearly correct |
 
----
+ARI within 3 points of the paper — the overall cluster assignment structure is sound.
+The ACC gap is driven by 4 identifiable label-quality issues (all traceable to `target_k`
+forcing spurious slot-filling). The NMI gap reflects 4 overlapping merged labels that split
+true classes across multiple predicted buckets.
 
-### Run 02 — `massive_scenario` · `google/gemini-2.0-flash-001` _(pending)_
-
-> To be filled after execution. See §7 — Run 02 Execution Plan.
-
-| Model | ACC | NMI | ARI | n_pred_clusters |
-|-------|-----|-----|-----|-----------------|
-| `gpt-3.5-turbo-0125` (paper) | 71.75 | 78.00 | 56.86 | ~18–25 |
-| `google/gemini-2.0-flash-001` | — | — | — | — |
+**The remaining gap is a label quality problem, not a model capability problem.**
 
 ---
 
 ## 9. Next Steps
 
-### Immediate
+### Immediate — v1.3.0 release
 
-- [ ] Switch `.env` to `LLM_MODEL=google/gemini-2.0-flash-001`
-- [ ] Run Step 1 for `massive_scenario` — verify merge count ≤ 30
-- [ ] Run Step 2 (~3h20)
-- [ ] Run Step 3, record Run 02 results in §8
+- [x] `fix/model-gemini-flash` complete and pushed
+- [ ] PR: `fix/model-gemini-flash` → `develop`
+- [ ] PR: `develop` → `main`
 - [ ] `cz bump` → v1.3.0
 
-### After `massive_scenario` Run 02 validated
+### Next iteration — `fix/merge-prompt-v2`
 
-- [ ] Run remaining 4 datasets sequentially
+Redesign the merge prompt to consolidate aggressively **without** a numeric `target_k`, in
+order to respect the semi-supervised nature of the pipeline. Approach:
+
+- Stronger consolidation language ("merge any label that refers to the same real-world intent,
+  even if the wording differs")
+- Explicit examples of what must be merged (alarm/reminder/alarms → one label)
+- Possibly a two-phase prompt: first cluster by concept domain, then name each cluster
+- Success criterion: gemini produces ≤ 30 labels from 350 proposed without `--target_k`
+
+After a successful prompt redesign, re-run `massive_scenario` without `--target_k` and compare
+to Run 02.
+
+### After merge prompt validated
+
+- [ ] Run remaining 4 datasets with gemini (`massive_intent`, `go_emotion`, `arxiv_fine`, `mtop_intent`)
 - [ ] Record full 5-dataset results table in §8
 - [ ] Compare to paper Table 2
 
@@ -755,4 +877,3 @@ for the full fragmentation analysis.
 > **Note on `run.sh`**: The original script runs all 5 datasets in parallel using `nohup ... &`.
 > With a single API key this saturates rate limits immediately.
 > We run datasets sequentially instead.
-
