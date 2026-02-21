@@ -108,23 +108,49 @@ def label_generation(args, client, data_list, chunk_size):
     return all_labels
 
 
-def merge_labels(args, all_labels, client):
-    prompt = prompt_construct_merge_label(all_labels)
-    response = chat(prompt, client)
+def _parse_merge_response(response: str) -> list[str] | None:
+    """
+    Parse the LLM merge response into a flat list of label strings.
+
+    Handles two response shapes:
+      - Dict:  {"merged_labels": ["a", "b", ...]}  (expected)
+      - List:  ["a", "b", ...]                      (some models return flat list)
+
+    Returns None if parsing fails entirely.
+    """
     try:
-        response = eval(response)  # noqa: S307
-        merged = []
-        for sub_list in response.values():
-            merged.extend(sub_list)
-        return merged
+        parsed = eval(response)  # noqa: S307
     except Exception:
-        return all_labels
+        return None
+
+    if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+        return parsed
+
+    if isinstance(parsed, dict):
+        merged = []
+        for val in parsed.values():
+            if isinstance(val, list):
+                merged.extend(val)
+        if merged:
+            return merged
+
+    return None
+
+
+def merge_labels(args, all_labels, client, target_k: int | None = None):
+    prompt = prompt_construct_merge_label(all_labels, target_k=target_k)
+    response = chat(prompt, client, max_tokens=4096)
+    parsed = _parse_merge_response(response)
+    if parsed is not None:
+        return parsed
+    logger.warning("merge_labels: could not parse LLM response — returning unmerged list")
+    return all_labels
 
 
 def main(args):
     size = "large" if args.use_large else "small"
     run_dir = make_run_dir(args.runs_dir, args.data, size)
-    setup_logging(os.path.join(run_dir, "run.log"))
+    setup_logging(os.path.join(run_dir, "step1_label_gen.log"))
 
     logger.info("=== Step 1 — Label Generation ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)
@@ -144,9 +170,23 @@ def main(args):
     logger.info("Labels proposed (before merge): %d", len(all_labels))
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
-    final_labels = merge_labels(args, all_labels, client)
+    # target_k: only pass when explicitly requested via --target_k.
+    # The paper does NOT use a target — capable models (gemini, GPT-4) should
+    # consolidate naturally.  Forcing k fills slots with spurious labels.
+    forced_k = args.target_k if hasattr(args, "target_k") and args.target_k is not None else None
+    final_labels = merge_labels(args, all_labels, client, target_k=forced_k)
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
+
+    ratio = len(final_labels) / len(true_labels)
+    if ratio > 2:
+        logger.warning(
+            "Merged label count (%d) is %.1fx the true class count (%d). "
+            "Classification results will not be comparable to the paper baseline. "
+            "Consider re-running Step 1 before proceeding to Step 2.",
+            len(final_labels), ratio, len(true_labels),
+        )
+
     logger.info("Done in %.1fs", time.time() - start)
 
 
@@ -161,6 +201,14 @@ def build_parser():
     parser.add_argument("--print_details", type=bool, default=False)
     parser.add_argument("--test_num", type=int, default=5)
     parser.add_argument("--chunk_size", type=int, default=15)
+    parser.add_argument(
+        "--target_k", type=int, default=None,
+        help=(
+            "If set, instruct the merge step to produce approximately this many labels. "
+            "Default: None (paper behaviour — let the model consolidate naturally). "
+            "Only use this with weaker models that under-consolidate without guidance."
+        ),
+    )
     # --api_key kept for backward compatibility but ignored; key comes from .env
     parser.add_argument("--api_key", type=str, default="", help="ignored — use OPENAI_API_KEY in .env")
     return parser

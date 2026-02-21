@@ -8,8 +8,8 @@ token budget on internal chain-of-thought.
 
 Usage
 -----
-    python probe_models.py --model <openrouter-model-id>
-    python probe_models.py --model arcee-ai/trinity-large-preview:free --verbose
+    python tools/probe_models.py --model <openrouter-model-id>
+    python tools/probe_models.py --model google/gemini-2.0-flash-001 --verbose
 
 Tests
 -----
@@ -22,6 +22,14 @@ Tests
 
 Each test prints PASS / WARN / FAIL with a one-line explanation.
 A final score and verdict (RECOMMENDED / USABLE / SKIP) are printed at the end.
+
+NOTE: Passing T1–T6 is necessary but NOT sufficient. A model must also pass the
+merge-at-scale test (≥100 proposed labels → ≈ true class count) before being used
+for a full pipeline run. Use the --merge-test flag or run manually:
+    python tools/probe_models.py --model <id> --verbose
+and inspect the T3 output count. Models that pass probe but fail merge at scale:
+    - arcee-ai/trinity-large-preview:free  (stalls at 144/158 labels)
+    - openai/gpt-4o-mini                   (167 → 105, poor consolidation)
 """
 
 from __future__ import annotations

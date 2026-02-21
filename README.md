@@ -30,28 +30,27 @@ The folder name encodes `<dataset>_<split>_<YYYYMMDD_HHMMSS>`, so each run is is
 
 ## Models & Datasets
 
-### Models used in the paper
+### Models
 
-| Model (paper) | Type | Notes |
-|---------------|------|-------|
-| `gpt-3.5-turbo-0125` | OpenAI | Main model used in all experiments |
-| `gpt-4` | OpenAI | Used in ablation/upper bound |
+| Model | Type | Status | Notes |
+|-------|------|--------|-------|
+| `gpt-3.5-turbo-0125` | OpenAI (paper) | Reference | Main model in paper experiments |
+| `google/gemini-2.0-flash-001` | OpenRouter (paid) | ✅ **PRIMARY** | 6/6 probe + merge test 167→28 labels. ~$0.92 for full 5-dataset baseline. |
+| `arcee-ai/trinity-large-preview:free` | OpenRouter (free) | ⚠️ Merge fails | 6/6 probe but stalls at 144 labels — cannot consolidate at scale |
+| `openai/gpt-4o-mini` | OpenRouter (paid) | ⚠️ Merge weak | 6/6 probe but merge test: 167→105 (poor consolidation) |
+| `meta-llama/llama-3.3-70b-instruct:free` | OpenRouter (free) | ⏳ Pending | Venice upstream congestion — retry off-peak, then confirm merge |
+| `mistralai/mistral-small-3.1-24b-instruct:free` | OpenRouter (free) | ⏳ Pending | Same Venice block |
+| `google/gemma-3-27b-it:free` | OpenRouter (free) | ⏳ Pending | Same Venice block |
+| `nousresearch/hermes-3-llama-3.1-405b:free` | OpenRouter (free) | ⏳ Pending | Same Venice block |
 
-### Free OpenRouter alternatives
+Run `tools/probe_models.py` to check eligibility before switching. Passing the 6-test probe is
+necessary but not sufficient — also verify the merge step consolidates to ≈ true class count.
 
-| Model (OpenRouter ID) | Size | Status | Notes |
-|-----------------------|------|--------|-------|
-| `arcee-ai/trinity-large-preview:free` | ~70B | ✅ Confirmed | Passed all 6 probes — use for baseline runs |
-| `meta-llama/llama-3.3-70b-instruct:free` | 70B | ⏳ Pending | Venice upstream congestion — retry off-peak |
-| `nousresearch/hermes-3-llama-3.1-405b:free` | 405B | ⏳ Pending | Same Venice block |
-| `mistralai/mistral-small-3.1-24b-instruct:free` | 24B | ⏳ Pending | Same Venice block |
-| `google/gemma-3-27b-it:free` | 27B | ⏳ Pending | Same Venice block |
-
-See `FINDINGS.md §6` for the full probe log.
+See `FINDINGS.md §5–§6` for full selection rationale and probe log.
 
 > **JSON mode**: The original code forces `response_format={"type":"json_object"}` on every call.
-> Most free models don't support this reliably. We keep it off by default (`LLM_FORCE_JSON_MODE=false`)
-> and strip markdown fences from responses instead.
+> Most models (including gemini-2.0-flash) don't support this flag. We keep it off by default
+> (`LLM_FORCE_JSON_MODE=false`) and strip markdown fences from responses instead.
 
 ### Datasets used in the paper
 
@@ -127,6 +126,8 @@ tc-seed-labels
 
 # Step 1 — label generation  (prints the run_dir at startup)
 tc-label-gen --data massive_scenario
+# Optional: force merge target (only for weaker models that under-consolidate)
+# tc-label-gen --data massive_scenario --target_k 18
 
 # Step 2 — classification  (--run_dir = folder created by Step 1)
 tc-classify --data massive_scenario \
@@ -164,11 +165,11 @@ tc-classify   --data massive_scenario --run_dir ./runs/... --print_details True 
 |----------|---------|-------------|
 | `OPENAI_API_KEY` | — | OpenRouter (or OpenAI) key |
 | `OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` | API endpoint |
-| `LLM_MODEL` | `arcee-ai/trinity-large-preview:free` | Model ID |
+| `LLM_MODEL` | `google/gemini-2.0-flash-001` | Model ID |
 | `LLM_TEMPERATURE` | `0` | Temperature (0 = deterministic) |
-| `LLM_MAX_TOKENS` | `512` | Max tokens per call |
+| `LLM_MAX_TOKENS` | `4096` | Max tokens per call (merge step needs ≥2300) |
 | `LLM_FORCE_JSON_MODE` | `false` | Set `true` only for models that support `response_format=json_object` |
-| `LLM_REQUEST_DELAY` | `1` | Seconds to wait between LLM calls (rate limiting) |
+| `LLM_REQUEST_DELAY` | `2` | Seconds to wait between LLM calls (rate limiting) |
 | `OR_SITE_URL` | — | Optional: sent as `HTTP-Referer` header to OpenRouter |
 | `OR_APP_NAME` | `text-clustering-llm` | Optional: sent as `X-Title` header |
 
@@ -193,7 +194,8 @@ text-clustering-llm/
 │       └── evaluation.py          # Step 3: ACC/NMI/ARI + saves results.json
 ├── paper/                         # Thin shims for backward compat (python label_generation.py …)
 ├── tools/
-│   └── probe_models.py            # Dev tool: 6-test model compatibility probe
+│   ├── probe_models.py            # Dev tool: 6-test model compatibility probe
+│   └── preflight.py               # Pre-run check (tc-preflight): env, API, merge quality
 ├── dataset/                       # Datasets (not in git — download separately)
 ├── runs/                          # All outputs (not in git)
 ├── logs/                          # Logs from background runs (not in git)

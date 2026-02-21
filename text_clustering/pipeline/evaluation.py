@@ -112,7 +112,7 @@ def clustering_score(y_true, y_pred):
 
 def main(args):
     size = "large" if args.use_large else "small"
-    setup_logging(os.path.join(args.run_dir, "run.log"))
+    setup_logging(os.path.join(args.run_dir, "step3_evaluation.log"))
 
     logger.info("=== Step 3 — Evaluation ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)
