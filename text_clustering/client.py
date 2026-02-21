@@ -60,9 +60,9 @@ def make_client() -> OpenAI:
 # Resolved at import time so other modules can do:
 #   from text_clustering.client import MODEL
 # instead of reading the env var themselves.
-MODEL: str = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+MODEL: str = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-001")
 TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
-MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "512"))
+MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
 
 if __name__ == "__main__":

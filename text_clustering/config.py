@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
+MODEL: str = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-001")
 TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
-MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "512"))
+MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 FORCE_JSON_MODE: bool = os.getenv("LLM_FORCE_JSON_MODE", "false").lower() == "true"
-REQUEST_DELAY: float = float(os.getenv("LLM_REQUEST_DELAY", "0"))
+REQUEST_DELAY: float = float(os.getenv("LLM_REQUEST_DELAY", "2"))

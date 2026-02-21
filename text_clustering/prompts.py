@@ -10,9 +10,14 @@ prompt_construct_generate_label(sentence_list, given_labels)
 
 prompt_construct_merge_label(label_list, target_k=None)
     Prompt for Step 1 — deduplicate/merge near-synonymous label names.
-    target_k: if provided, instructs the model to produce approximately that
-    many final labels.  Used to compensate for weaker models that don't
-    consolidate as aggressively as GPT-3.5 without an explicit target.
+
+    The base prompt is identical to the original paper (ECNU-Text-Computing).
+    target_k is an optional escape hatch: if provided, an extra sentence
+    instructs the model to produce approximately that many final labels.
+    This should NOT be used with capable models (gemini, GPT-4) — it forces
+    the model to fill all k slots with spurious categories instead of
+    producing a naturally consolidated set.  It exists only as a fallback
+    for weaker models that under-consolidate without guidance.
 
 prompt_construct_classify(label_list, sentence)
     Prompt for Step 2 — classify a single text into one of the known labels.
