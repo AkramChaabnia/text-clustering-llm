@@ -170,7 +170,11 @@ def main(args):
     logger.info("Labels proposed (before merge): %d", len(all_labels))
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
-    final_labels = merge_labels(args, all_labels, client, target_k=len(true_labels))
+    # target_k: only pass when explicitly requested via --target_k.
+    # The paper does NOT use a target — capable models (gemini, GPT-4) should
+    # consolidate naturally.  Forcing k fills slots with spurious labels.
+    forced_k = args.target_k if hasattr(args, "target_k") and args.target_k is not None else None
+    final_labels = merge_labels(args, all_labels, client, target_k=forced_k)
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
 
@@ -197,6 +201,14 @@ def build_parser():
     parser.add_argument("--print_details", type=bool, default=False)
     parser.add_argument("--test_num", type=int, default=5)
     parser.add_argument("--chunk_size", type=int, default=15)
+    parser.add_argument(
+        "--target_k", type=int, default=None,
+        help=(
+            "If set, instruct the merge step to produce approximately this many labels. "
+            "Default: None (paper behaviour — let the model consolidate naturally). "
+            "Only use this with weaker models that under-consolidate without guidance."
+        ),
+    )
     # --api_key kept for backward compatibility but ignored; key comes from .env
     parser.add_argument("--api_key", type=str, default="", help="ignored — use OPENAI_API_KEY in .env")
     return parser

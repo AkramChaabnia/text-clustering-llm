@@ -126,6 +126,8 @@ tc-seed-labels
 
 # Step 1 — label generation  (prints the run_dir at startup)
 tc-label-gen --data massive_scenario
+# Optional: force merge target (only for weaker models that under-consolidate)
+# tc-label-gen --data massive_scenario --target_k 18
 
 # Step 2 — classification  (--run_dir = folder created by Step 1)
 tc-classify --data massive_scenario \
@@ -192,7 +194,8 @@ text-clustering-llm/
 │       └── evaluation.py          # Step 3: ACC/NMI/ARI + saves results.json
 ├── paper/                         # Thin shims for backward compat (python label_generation.py …)
 ├── tools/
-│   └── probe_models.py            # Dev tool: 6-test model compatibility probe
+│   ├── probe_models.py            # Dev tool: 6-test model compatibility probe
+│   └── preflight.py               # Pre-run check (tc-preflight): env, API, merge quality
 ├── dataset/                       # Datasets (not in git — download separately)
 ├── runs/                          # All outputs (not in git)
 ├── logs/                          # Logs from background runs (not in git)

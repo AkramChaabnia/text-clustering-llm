@@ -327,7 +327,9 @@ def run_preflight() -> int:
     print("\n  C6  Merge output (Step 1 merge prompt)")
     merge_input = list(dict.fromkeys(_MERGE_LABELS))  # deduplicate, preserve order
     n_input = len(merge_input)
-    prompt = prompt_construct_merge_label(merge_input, target_k=18)
+    # No target_k — paper behaviour: let the model consolidate naturally.
+    # target_k is only for weaker models that under-consolidate.
+    prompt = prompt_construct_merge_label(merge_input)
     r = _call(client, prompt, max_tokens=4096)
     merged: list[str] = []
     if r["error"]:
