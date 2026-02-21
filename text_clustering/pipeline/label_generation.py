@@ -108,17 +108,43 @@ def label_generation(args, client, data_list, chunk_size):
     return all_labels
 
 
+def _parse_merge_response(response: str) -> list[str] | None:
+    """
+    Parse the LLM merge response into a flat list of label strings.
+
+    Handles two response shapes:
+      - Dict:  {"merged_labels": ["a", "b", ...]}  (expected)
+      - List:  ["a", "b", ...]                      (some models return flat list)
+
+    Returns None if parsing fails entirely.
+    """
+    try:
+        parsed = eval(response)  # noqa: S307
+    except Exception:
+        return None
+
+    if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+        return parsed
+
+    if isinstance(parsed, dict):
+        merged = []
+        for val in parsed.values():
+            if isinstance(val, list):
+                merged.extend(val)
+        if merged:
+            return merged
+
+    return None
+
+
 def merge_labels(args, all_labels, client, target_k: int | None = None):
     prompt = prompt_construct_merge_label(all_labels, target_k=target_k)
     response = chat(prompt, client, max_tokens=4096)
-    try:
-        response = eval(response)  # noqa: S307
-        merged = []
-        for sub_list in response.values():
-            merged.extend(sub_list)
-        return merged
-    except Exception:
-        return all_labels
+    parsed = _parse_merge_response(response)
+    if parsed is not None:
+        return parsed
+    logger.warning("merge_labels: could not parse LLM response — returning unmerged list")
+    return all_labels
 
 
 def main(args):
