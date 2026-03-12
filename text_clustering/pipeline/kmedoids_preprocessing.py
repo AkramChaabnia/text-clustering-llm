@@ -88,10 +88,21 @@ def _write_jsonl(path: str, records: list[dict]) -> None:
 def precluster(args) -> str:
     """Run embedding + K-Medoids and write artefacts to a new run directory.
 
-    Returns the path to the created run directory.
+    If ``--run_dir`` is provided and already contains ``embeddings.npy``, the
+    embedding step is skipped (checkpoint/resume).  Similarly, if
+    ``kmedoids_metadata.json`` already exists the clustering step is skipped.
+
+    Returns the path to the created (or reused) run directory.
     """
     size = "large" if args.use_large else "small"
-    run_dir = _make_run_dir(args.runs_dir, args.data, size)
+
+    # Reuse existing run_dir if provided, otherwise create a new one
+    if args.run_dir:
+        run_dir = args.run_dir
+        os.makedirs(run_dir, exist_ok=True)
+    else:
+        run_dir = _make_run_dir(args.runs_dir, args.data, size)
+
     setup_logging(os.path.join(run_dir, "kmedoids_precluster.log"))
 
     logger.info("=== K-Medoids Pre-Clustering ===")
@@ -106,43 +117,55 @@ def precluster(args) -> str:
     texts = [item["input"] for item in data_list]
     logger.info("Loaded %d documents", len(texts))
 
-    # 2. Compute embeddings
-    embeddings = compute_embeddings(
-        texts,
-        model_name=args.embedding_model,
-        batch_size=args.batch_size,
-    )
+    # 2. Compute embeddings (or load from checkpoint)
+    emb_path = os.path.join(run_dir, "embeddings.npy")
+    if os.path.exists(emb_path):
+        logger.info("[checkpoint] Loading cached embeddings from %s", emb_path)
+        embeddings = np.load(emb_path)
+        logger.info("[checkpoint] Loaded embeddings — shape: %s", embeddings.shape)
+    else:
+        embeddings = compute_embeddings(
+            texts,
+            model_name=args.embedding_model,
+            batch_size=args.batch_size,
+        )
+        np.save(emb_path, embeddings)
+        logger.info("Saved embeddings to %s", emb_path)
 
-    # 3. Run K-Medoids
-    cluster_labels, medoid_indices = run_kmedoids(
-        embeddings,
-        k=args.kmedoids_k,
-        random_state=args.seed,
-    )
+    # 3. Run K-Medoids (or load from checkpoint)
+    meta_path = os.path.join(run_dir, "kmedoids_metadata.json")
+    if os.path.exists(meta_path):
+        logger.info("[checkpoint] Loading cached K-Medoids metadata from %s", meta_path)
+        with open(meta_path) as f:
+            meta = json.load(f)
+        cluster_labels = np.array(meta["cluster_assignments"])
+        medoid_indices = np.array(meta["medoid_indices"])
+        logger.info("[checkpoint] Loaded %d clusters, %d medoids", args.kmedoids_k, len(medoid_indices))
+    else:
+        cluster_labels, medoid_indices = run_kmedoids(
+            embeddings,
+            k=args.kmedoids_k,
+            random_state=args.seed,
+        )
+
+        # Save metadata
+        metadata = {
+            "dataset": args.data,
+            "split": size,
+            "n_documents": len(data_list),
+            "kmedoids_k": args.kmedoids_k,
+            "embedding_model": args.embedding_model,
+            "random_state": args.seed,
+            "n_medoids": len(medoid_indices),
+            "medoid_indices": sorted(int(i) for i in medoid_indices),
+            "cluster_assignments": [int(c) for c in cluster_labels],
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        }
+        _write_json(meta_path, metadata)
 
     # 4. Extract medoid documents
     medoid_docs = get_medoid_documents(data_list, medoid_indices)
-
-    # 5. Save artefacts
-    metadata = {
-        "dataset": args.data,
-        "split": size,
-        "n_documents": len(data_list),
-        "kmedoids_k": args.kmedoids_k,
-        "embedding_model": args.embedding_model,
-        "random_state": args.seed,
-        "n_medoids": len(medoid_indices),
-        "medoid_indices": sorted(int(i) for i in medoid_indices),
-        "cluster_assignments": [int(c) for c in cluster_labels],
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-    }
-    _write_json(os.path.join(run_dir, "kmedoids_metadata.json"), metadata)
     _write_jsonl(os.path.join(run_dir, "medoid_documents.jsonl"), medoid_docs)
-
-    # Also save embeddings as .npy for potential reuse
-    emb_path = os.path.join(run_dir, "embeddings.npy")
-    np.save(emb_path, embeddings)
-    logger.info("Saved embeddings to %s", emb_path)
 
     # Save cluster map for inspection
     cluster_map = build_cluster_map(cluster_labels, medoid_indices)

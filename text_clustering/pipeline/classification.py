@@ -128,6 +128,11 @@ def known_label_categorize(args, client, data_list, label_list, run_dir):
 
     length = args.test_num if args.print_details else len(data_list)
 
+    # In medoid mode (~100 docs, each call is expensive) → checkpoint every sample.
+    # In normal mode (~3000 docs) → checkpoint every 200 to avoid I/O overhead.
+    medoid_mode = getattr(args, "medoid_mode", False)
+    ckpt_interval = 1 if medoid_mode else 200
+
     for i in range(start_from, length):
         sentence = data_list[i]["input"]
         prompt = prompt_construct_classify(label_list, sentence)
@@ -149,8 +154,8 @@ def known_label_categorize(args, client, data_list, label_list, run_dir):
             print(f"Response : {response}")
             print(f"Predicted: {predicted}")
 
-        if i % 200 == 0:
-            logger.info("Progress: %d/%d", i, length)
+        if (i - start_from) % ckpt_interval == 0:
+            logger.info("Progress: %d/%d", i + 1, length)
             save_checkpoint(run_dir, i + 1, answer)
             write_classifications(run_dir, answer)
 

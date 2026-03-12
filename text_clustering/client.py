@@ -37,11 +37,24 @@ load_dotenv(_ROOT / ".env", override=False)
 def make_client() -> OpenAI:
     """Build and return an OpenAI-compatible client.
 
-    If OPENAI_BASE_URL is set to an OpenRouter endpoint, the optional
-    HTTP-Referer and X-Title headers are injected as required by OpenRouter's
-    attribution guidelines.
+    Provider detection logic:
+      1. If LLM_PROVIDER is explicitly set, use that.
+      2. If OPENAI_BASE_URL contains 'openrouter', assume openrouter.
+      3. Otherwise, assume direct openai.
+
+    For OpenRouter, the optional HTTP-Referer and X-Title headers are
+    injected as required by OpenRouter's attribution guidelines.
     """
-    provider = os.getenv("LLM_PROVIDER", "openrouter").lower()
+    base_url = os.getenv("OPENAI_BASE_URL") or None
+    explicit_provider = os.getenv("LLM_PROVIDER", "").lower()
+
+    # Auto-detect provider from base URL when not explicitly set
+    if explicit_provider:
+        provider = explicit_provider
+    elif base_url and "openrouter" in base_url:
+        provider = "openrouter"
+    else:
+        provider = "openai"
 
     extra_headers: dict[str, str] = {}
     if provider == "openrouter":
@@ -52,7 +65,7 @@ def make_client() -> OpenAI:
 
     return OpenAI(
         api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.getenv("OPENAI_BASE_URL"),
+        base_url=base_url,
         default_headers=extra_headers or None,
     )
 
@@ -66,8 +79,11 @@ MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
 
 if __name__ == "__main__":
-    print(f"Provider  : {os.getenv('LLM_PROVIDER', 'openrouter')}")
-    print(f"Base URL  : {os.getenv('OPENAI_BASE_URL', '(openai default)')}")
+    base_url = os.getenv("OPENAI_BASE_URL", "(openai default)")
+    provider_env = os.getenv("LLM_PROVIDER", "")
+    detected = provider_env if provider_env else ("openrouter" if "openrouter" in str(base_url) else "openai")
+    print(f"Provider  : {detected}")
+    print(f"Base URL  : {base_url}")
     print(f"Model     : {MODEL}")
     print(f"Temp      : {TEMPERATURE}  |  Max tokens: {MAX_TOKENS}")
     print("\nSending smoke-test request...")
