@@ -50,7 +50,7 @@ def get_label_list(data_list):
 
 
 def main():  # select 20% of labels to be given to the LLMs
-    data_path = "./dataset/"
+    data_path = "./datasets/"
     runs_dir = "./runs"
     os.makedirs(runs_dir, exist_ok=True)
     setup_logging(os.path.join(runs_dir, "seed_labels.log"))

@@ -149,7 +149,15 @@ def merge_labels(args, all_labels, client, target_k: int | None = None):
 
 def main(args):
     size = "large" if args.use_large else "small"
-    run_dir = make_run_dir(args.runs_dir, args.data, size)
+
+    # If an explicit --run_dir was provided (e.g. from the pre-clustering step),
+    # reuse that directory instead of creating a new timestamped one.
+    if getattr(args, "run_dir", None):
+        run_dir = args.run_dir
+        os.makedirs(run_dir, exist_ok=True)
+    else:
+        run_dir = make_run_dir(args.runs_dir, args.data, size)
+
     setup_logging(os.path.join(run_dir, "step1_label_gen.log"))
 
     logger.info("=== Step 1 — Label Generation ===")
@@ -192,10 +200,13 @@ def main(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Step 1: LLM label generation and merge.")
-    parser.add_argument("--data_path", type=str, default="./dataset/")
+    parser.add_argument("--data_path", type=str, default="./datasets/")
     parser.add_argument("--data", type=str, default="arxiv_fine")
     parser.add_argument("--runs_dir", type=str, default="./runs",
                         help="Root directory where timestamped run folders are created")
+    parser.add_argument("--run_dir", type=str, default=None,
+                        help="Reuse an existing run directory (e.g. from K-Medoids pre-clustering). "
+                             "If set, --runs_dir is ignored and no new timestamp dir is created.")
     parser.add_argument("--given_label_path", type=str, default="./runs/chosen_labels.json")
     parser.add_argument("--use_large", action="store_true")
     parser.add_argument("--print_details", type=bool, default=False)

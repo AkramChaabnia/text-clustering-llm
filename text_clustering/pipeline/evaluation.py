@@ -170,7 +170,7 @@ def main(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Step 3: Evaluate clustering metrics.")
-    parser.add_argument("--data_path", type=str, default="./dataset/")
+    parser.add_argument("--data_path", type=str, default="./datasets/")
     parser.add_argument("--data", type=str, default="arxiv_fine")
     parser.add_argument(
         "--run_dir", type=str, required=True,

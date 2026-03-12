@@ -22,6 +22,7 @@ env/
 # .env.example is tracked (template, no real values)
 
 # Project outputs (generated at runtime)
+datasets/
 dataset/
 generated_labels/
 runs/

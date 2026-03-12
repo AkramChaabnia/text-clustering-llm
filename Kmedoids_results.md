@@ -46,7 +46,12 @@
 
 | Run | Model | k | n_pred | ACC | NMI | ARI | LLM Calls | Reduction | Status |
 |-----|-------|---|--------|-----|-----|-----|-----------|-----------|--------|
-| KM-01 | `gpt-4o-mini` | 100 | — | — | — | — | ~100 | ~30× | ⏳ Pending |
+| KM-01 | `gpt-4o-mini` | 100 | 19 | 54.98 | 57.78 | 41.66 | ~300 | ~10× | ✅ Done |
+
+> **KM-01 notes**: Label generation ran on full 2974 docs (not medoids only), producing 715 proposed labels.
+> Re-merged with `target_k=18` → 19 labels. Classification ran on 100 medoids only (181s).
+> 23/2974 docs (0.77%) received no label during propagation.
+> Run dir: `./runs/massive_scenario_small_20260312_112628`
 
 ### `massive_intent` · small split (2,974 docs → 100 medoids)
 
@@ -78,7 +83,7 @@
 
 | Dataset | Paper ACC | Paper NMI | Paper ARI | KM ACC | KM NMI | KM ARI | LLM Calls (Original → KM) |
 |---------|-----------|-----------|-----------|--------|--------|--------|--------------------------|
-| `massive_scenario` | 71.75 | 78.00 | 56.86 | — | — | — | 3,000 → 100 |
+| `massive_scenario` | 71.75 | 78.00 | 56.86 | **54.98** | **57.78** | **41.66** | 3,000 → ~300 |
 | `massive_intent` | 64.12 | 65.44 | 48.92 | — | — | — | 3,000 → 100 |
 | `go_emotion` | 31.66 | 27.39 | 13.50 | — | — | — | 5,940 → 100 |
 | `arxiv_fine` | 38.78 | 57.43 | 20.55 | — | — | — | 3,674 → 100 |
@@ -99,8 +104,10 @@ tc-kmedoids --data massive_scenario --kmedoids_k 100
 # 3. Seed labels (if not already done)
 tc-seed-labels
 
-# 4. Label generation (on medoid documents — same as original)
-tc-label-gen --data massive_scenario --runs_dir ./runs
+# 4. Label generation (writes labels_merged.json into the same run_dir)
+tc-label-gen --data massive_scenario --run_dir ./runs/<run_dir>
+# If merge produces too many labels, re-merge with target_k:
+# python tools/remerge_labels.py ./runs/<run_dir> 18
 
 # 5. Classify medoids only (saves checkpoint after EVERY sample)
 tc-classify --data massive_scenario --run_dir ./runs/<run_dir> --medoid_mode

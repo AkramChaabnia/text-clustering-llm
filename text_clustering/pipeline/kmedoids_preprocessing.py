@@ -270,7 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
             "before running the LLM pipeline, then propagate labels back."
         ),
     )
-    parser.add_argument("--data_path", type=str, default="./dataset/")
+    parser.add_argument("--data_path", type=str, default="./datasets/")
     parser.add_argument("--data", type=str, default="massive_scenario",
                         help="Dataset name (subfolder under data_path)")
     parser.add_argument("--runs_dir", type=str, default="./runs",
