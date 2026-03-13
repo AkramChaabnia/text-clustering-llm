@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint branch release run-step0 run-step1 run-step2 run-step3 run-kmedoids run-kmedoids-classify run-kmedoids-propagate
+.PHONY: help setup lint branch release run-step0 run-step1 run-step2 run-step3 run-kmedoids run-kmedoids-classify run-kmedoids-propagate run-gmm run-gmm-classify run-gmm-propagate
 
 help:
 	@echo "Usage: make <target>"
@@ -22,11 +22,25 @@ help:
 	@echo "  run-kmedoids-propagate data=<d> run=<run_dir>"
 	@echo "                                     propagate medoid labels → full dataset"
 	@echo ""
+	@echo "  ── GMM accelerated pipeline ──"
+	@echo "  run-gmm data=<d> [k=100]           pre-cluster → representative_documents.jsonl"
+	@echo "  run-gmm-classify data=<d> run=<run_dir>"
+	@echo "                                     classify representatives (--representative_mode)"
+	@echo "  run-gmm-propagate data=<d> run=<run_dir>"
+	@echo "                                     propagate labels → full dataset"
+	@echo ""
 	@echo "  Example (K-Medoids pipeline):"
 	@echo "    make run-kmedoids data=massive_scenario k=100"
 	@echo "    make run-step1 data=massive_scenario"
 	@echo "    make run-kmedoids-classify data=massive_scenario run=./runs/<run_dir>"
 	@echo "    make run-kmedoids-propagate data=massive_scenario run=./runs/<run_dir>"
+	@echo "    make run-step3 data=massive_scenario run=./runs/<run_dir>"
+	@echo ""
+	@echo "  Example (GMM pipeline):"
+	@echo "    make run-gmm data=massive_scenario k=100"
+	@echo "    make run-step1 data=massive_scenario"
+	@echo "    make run-gmm-classify data=massive_scenario run=./runs/<run_dir>"
+	@echo "    make run-gmm-propagate data=massive_scenario run=./runs/<run_dir>"
 	@echo "    make run-step3 data=massive_scenario run=./runs/<run_dir>"
 	@echo ""
 
@@ -136,3 +150,36 @@ ifndef run
 	$(error run is required, e.g. run=./runs/massive_scenario_small_20260220_143012)
 endif
 	.venv/bin/tc-kmedoids --data $(data) --run_dir $(run) --propagate
+
+# ── GMM accelerated pipeline ────────────────────────────────────────────
+
+# usage: make run-gmm data=massive_scenario k=100
+run-gmm:
+ifndef data
+	$(error data is required, e.g. make run-gmm data=massive_scenario k=100)
+endif
+	mkdir -p logs
+	.venv/bin/tc-gmm --data $(data) --gmm_k $(k) 2>&1 | tee logs/$(data)_gmm.log
+
+# usage: make run-gmm-classify data=massive_scenario run=./runs/<run_dir>
+run-gmm-classify:
+ifndef data
+	$(error data is required)
+endif
+ifndef run
+	$(error run is required, e.g. run=./runs/massive_scenario_small_20260313_...)
+endif
+	mkdir -p logs
+	nohup .venv/bin/tc-classify --data $(data) --run_dir $(run) --representative_mode \
+		>> logs/$(data)_gmm_classification.log 2>&1 &
+	@echo "running in background — tail -f logs/$(data)_gmm_classification.log"
+
+# usage: make run-gmm-propagate data=massive_scenario run=./runs/<run_dir>
+run-gmm-propagate:
+ifndef data
+	$(error data is required)
+endif
+ifndef run
+	$(error run is required, e.g. run=./runs/massive_scenario_small_20260313_...)
+endif
+	.venv/bin/tc-gmm --data $(data) --run_dir $(run) --propagate

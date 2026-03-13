@@ -67,6 +67,15 @@ def _load_medoid_documents(run_dir: str) -> list[dict]:
     return docs
 
 
+def _load_representative_documents(run_dir: str) -> list[dict]:
+    """Load the GMM representative document subset from ``representative_documents.jsonl``."""
+    path = os.path.join(run_dir, "representative_documents.jsonl")
+    with open(path, "r") as f:
+        docs = [json.loads(line) for line in f]
+    logger.info("Loaded %d representative documents from %s", len(docs), path)
+    return docs
+
+
 def get_merged_labels(run_dir: str) -> list[str]:
     path = os.path.join(run_dir, "labels_merged.json")
     with open(path, "r") as f:
@@ -128,10 +137,11 @@ def known_label_categorize(args, client, data_list, label_list, run_dir):
 
     length = args.test_num if args.print_details else len(data_list)
 
-    # In medoid mode (~100 docs, each call is expensive) → checkpoint every sample.
+    # In medoid/representative mode (~100 docs, each call is expensive) → checkpoint every sample.
     # In normal mode (~3000 docs) → checkpoint every 200 to avoid I/O overhead.
     medoid_mode = getattr(args, "medoid_mode", False)
-    ckpt_interval = 1 if medoid_mode else 200
+    representative_mode = getattr(args, "representative_mode", False)
+    ckpt_interval = 1 if (medoid_mode or representative_mode) else 200
 
     for i in range(start_from, length):
         sentence = data_list[i]["input"]
@@ -172,19 +182,24 @@ def main(args):
     setup_logging(os.path.join(args.run_dir, "step2_classification.log"))
 
     medoid_mode = getattr(args, "medoid_mode", False)
+    representative_mode = getattr(args, "representative_mode", False)
 
     logger.info("=== Step 2 — Classification ===")
     logger.info("Dataset : %s  |  split: %s", args.data, size)
     logger.info("Run dir : %s", args.run_dir)
     if medoid_mode:
         logger.info("Mode    : MEDOID (classifying medoid subset only)")
+    elif representative_mode:
+        logger.info("Mode    : REPRESENTATIVE (classifying GMM representative subset only)")
     start = time.time()
 
     client = ini_client()
 
-    # Load documents — either full dataset or medoid subset
+    # Load documents — either full dataset or a compressed subset
     if medoid_mode:
         data_list = _load_medoid_documents(args.run_dir)
+    elif representative_mode:
+        data_list = _load_representative_documents(args.run_dir)
     else:
         data_list = load_dataset(args.data_path, args.data, args.use_large)
 
@@ -223,6 +238,13 @@ def build_parser():
         help=(
             "Classify only the medoid documents (from medoid_documents.jsonl in run_dir) "
             "instead of the full dataset. Used with the K-Medoids pre-clustering step."
+        ),
+    )
+    parser.add_argument(
+        "--representative_mode", action="store_true",
+        help=(
+            "Classify only the GMM representative documents (from representative_documents.jsonl) "
+            "instead of the full dataset. Used with the GMM pre-clustering step."
         ),
     )
     # --api_key kept for backward compatibility but ignored; key comes from .env

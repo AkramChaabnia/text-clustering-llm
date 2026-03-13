@@ -37,6 +37,7 @@ tc-classify       = "text_clustering.pipeline.classification:main_cli"
 tc-evaluate       = "text_clustering.pipeline.evaluation:main_cli"
 tc-preflight      = "tools.preflight:main"
 tc-kmedoids       = "text_clustering.pipeline.kmedoids_preprocessing:main_cli"
+tc-gmm            = "text_clustering.pipeline.gmm_preprocessing:main_cli"
 
 [project.optional-dependencies]
 dev = [

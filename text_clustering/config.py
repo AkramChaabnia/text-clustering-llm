@@ -23,3 +23,7 @@ REQUEST_DELAY: float = float(os.getenv("LLM_REQUEST_DELAY", "2"))
 KMEDOIDS_ENABLED: bool = os.getenv("KMEDOIDS_ENABLED", "false").lower() == "true"
 KMEDOIDS_K: int = int(os.getenv("KMEDOIDS_K", "100"))
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
+# ── GMM pre-clustering settings ───────────────────────────────────────────
+GMM_K: int = int(os.getenv("GMM_K", "100"))             # 0 = auto-select via BIC
+GMM_COVARIANCE_TYPE: str = os.getenv("GMM_COVARIANCE_TYPE", "tied")  # full|tied|diag|spherical
