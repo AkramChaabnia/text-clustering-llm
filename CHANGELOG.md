@@ -1,3 +1,22 @@
+## v1.4.0 (2026-03-15)
+
+### Feat
+
+- **sealclust**: add SEAL-Clust 9-stage pipeline with embedding, PCA/t-SNE reduction, overclustering, K\* estimation, label discovery, consolidation, classification, and propagation
+- **sealclust**: multi-method K\* estimation (BIC, silhouette-elbow, Calinski-Harabasz, ensemble with Kneedle elbow detection)
+- **clustering**: add K-Medoids pre-clustering module with medoid extraction and label propagation
+- **clustering**: add GMM clustering alternative to K-Medoids
+- **prompts**: add seed-free label discovery and K\*-targeted consolidation prompts (`prompt_discover_labels`, `prompt_consolidate_labels`)
+- **pipeline**: dual provider support, stage checkpoints, and results table output
+- **tools**: add `remerge_labels` utility for re-running only the merge step with a target_k
+- **docs**: consolidate research findings into unified FINDINGS.md with all experimental results (SC-01–SC-05, KM-01, KM-02, GMM-01)
+- **docs**: update README with SEAL-Clust framework overview
+
+### Fix
+
+- **pipeline**: fix pipeline stage wiring and import issues
+- **data**: fix dataset path `./dataset/` → `./datasets/` in seed_labels
+
 ## v1.3.0 (2026-02-21)
 
 ### Feat
