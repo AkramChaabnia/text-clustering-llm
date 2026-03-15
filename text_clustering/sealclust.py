@@ -5,9 +5,12 @@ This module implements the core computational steps of the SEAL-Clust
 (Scalable Efficient Autonomous LLM Clustering) framework:
 
   1. **Overclustering** — K-Medoids with a large K₀ to create micro-clusters
-  2. **Elbow-based k selection** — legacy method (Kneedle algorithm)
-  3. **BIC-based K* estimation** — run GMM on representative embeddings
-     and select the K that minimises the Bayesian Information Criterion
+  2. **K* estimation** — multi-method:
+     a. Silhouette-elbow: apply Kneedle elbow detection on the silhouette curve
+     b. Calinski-Harabasz (CH): variance-ratio criterion — peaks at optimal K
+     c. BIC via GMM on representative embeddings
+     d. Ensemble: median of all available methods
+  3. **Elbow-based k selection** — legacy method (Kneedle algorithm)
   4. **Label discovery** — send representative texts to the LLM in batches
   5. **Label consolidation** — merge candidate labels to exactly K* via LLM
   6. **Prototype extraction** and **label propagation**
@@ -16,6 +19,15 @@ Functions
 ---------
 run_sealclust_clustering(embeddings, k, ...)
     Run K-Medoids overclustering.
+
+estimate_k_star(representative_embeddings, k_min, k_max, method, ...)
+    Multi-method K* estimation dispatcher.
+
+estimate_k_star_silhouette(representative_embeddings, k_min, k_max, ...)
+    Silhouette-elbow K* via K-Medoids on representative embeddings.
+
+estimate_k_star_calinski(representative_embeddings, k_min, k_max, ...)
+    Calinski-Harabasz (CH) criterion — picks K that maximises CH index.
 
 estimate_k_star_bic(representative_embeddings, k_min, k_max, ...)
     GMM + BIC on representative embeddings → optimal K*.
@@ -30,7 +42,7 @@ elbow_select_k(embeddings, k_range, ...)
     Legacy: Elbow method auto-k selection.
 
 find_elbow(k_values, inertias)
-    Legacy: geometric Kneedle algorithm.
+    Geometric Kneedle algorithm.
 
 get_prototypes(documents, medoid_indices)
     Extract prototype documents at medoid positions.
@@ -127,8 +139,279 @@ def estimate_k_star_bic(
         return k_min, {}
 
     k_star = min(bic_scores, key=bic_scores.get)  # type: ignore[arg-type]
-    logger.info("Stage 6: K* = %d (BIC=%.2f)", k_star, bic_scores[k_star])
+    logger.info("BIC K* = %d (BIC=%.2f)", k_star, bic_scores[k_star])
     return k_star, bic_scores
+
+
+# ---------------------------------------------------------------------------
+# Silhouette-elbow K* estimation (Stage 6 — default method)
+# ---------------------------------------------------------------------------
+
+def estimate_k_star_silhouette(
+    representative_embeddings: np.ndarray,
+    k_min: int = 5,
+    k_max: int = 50,
+    random_state: int = 42,
+    max_iter: int = 300,
+) -> tuple[int, dict[int, float]]:
+    """Estimate optimal K* using **elbow detection** on the silhouette curve.
+
+    For each candidate K, run K-Medoids on the representative embeddings and
+    compute the mean silhouette coefficient.  Because silhouette typically
+    increases monotonically (more clusters → better local cohesion), picking
+    the raw maximum just selects the upper bound.
+
+    Instead we apply the **Kneedle elbow detector** (``find_elbow``) on the
+    *inverted* silhouette curve (treated as a decreasing function from the
+    perspective of "remaining improvement").  This finds the K where
+    silhouette gains transition from steep improvement to diminishing returns.
+
+    Parameters
+    ----------
+    representative_embeddings : np.ndarray
+        Shape ``(K₀, dim)`` — embeddings of representative documents.
+    k_min, k_max : int
+        Candidate K range.
+    random_state : int
+        Seed for reproducibility.
+
+    Returns
+    -------
+    k_star : int
+        The K at the elbow of the silhouette curve.
+    silhouette_scores : dict[int, float]
+        ``{k: score}`` for every K tried.
+    """
+    from sklearn_extra.cluster import KMedoids
+    from sklearn.metrics import silhouette_score
+    from sklearn.preprocessing import normalize
+
+    n_reps = representative_embeddings.shape[0]
+    k_max = min(k_max, n_reps - 1)
+    if k_min > k_max:
+        k_min = max(2, k_max // 2)
+
+    emb_norm = normalize(representative_embeddings, norm="l2")
+
+    logger.info(
+        "Silhouette-elbow: Estimating K* on %d representative embeddings (dim=%d)",
+        n_reps, emb_norm.shape[1],
+    )
+    logger.info("  Candidate range: K ∈ [%d, %d]", k_min, k_max)
+
+    scores: dict[int, float] = {}
+    for k in range(k_min, k_max + 1):
+        try:
+            km = KMedoids(
+                n_clusters=k,
+                metric="cosine",
+                method="alternate",
+                init="k-medoids++",
+                max_iter=max_iter,
+                random_state=random_state,
+            )
+            labels = km.fit_predict(emb_norm)
+            sil = silhouette_score(emb_norm, labels, metric="cosine")
+            scores[k] = float(sil)
+            logger.info("  K=%d  silhouette=%.4f", k, sil)
+        except Exception as e:
+            logger.warning("  K=%d  failed: %s", k, e)
+            continue
+
+    if not scores:
+        logger.warning("All silhouette fits failed — defaulting K*=%d", k_min)
+        return k_min, {}
+
+    # Apply elbow detection on the silhouette curve.
+    # Silhouette is an *increasing* curve that we want to find the "knee" of,
+    # i.e. where the gain starts to plateau.  ``find_elbow`` expects a
+    # *decreasing* curve (inertia), so we invert: use (max_sil - sil) as the
+    # "residual improvement" that decreases with K.
+    k_vals = sorted(scores.keys())
+    sil_vals = [scores[k] for k in k_vals]
+    max_sil = max(sil_vals)
+    # Residual improvement: how much silhouette remains to be gained
+    residuals = [max_sil - s for s in sil_vals]
+
+    k_star = find_elbow(k_vals, residuals)
+    logger.info(
+        "Silhouette-elbow K* = %d (silhouette=%.4f, max was %.4f at K=%d)",
+        k_star, scores[k_star], max_sil, max(scores, key=scores.get),  # type: ignore[arg-type]
+    )
+    return k_star, scores
+
+
+# ---------------------------------------------------------------------------
+# Calinski-Harabasz (CH) K* estimation (Stage 6 — alternative)
+# ---------------------------------------------------------------------------
+
+def estimate_k_star_calinski(
+    representative_embeddings: np.ndarray,
+    k_min: int = 5,
+    k_max: int = 50,
+    random_state: int = 42,
+    max_iter: int = 300,
+) -> tuple[int, dict[int, float]]:
+    """Estimate optimal K* using the Calinski-Harabasz (CH) variance-ratio criterion.
+
+    The CH index measures the ratio of between-cluster dispersion to
+    within-cluster dispersion.  Unlike silhouette, CH typically **peaks**
+    at the optimal K rather than monotonically increasing, because adding
+    clusters beyond the true K fragments between-cluster variance without
+    meaningfully reducing within-cluster variance.
+
+    Parameters
+    ----------
+    representative_embeddings : np.ndarray
+        Shape ``(K₀, dim)`` — embeddings of representative documents.
+    k_min, k_max : int
+        Candidate K range.
+    random_state : int
+        Seed for reproducibility.
+
+    Returns
+    -------
+    k_star : int
+        The K that maximises the Calinski-Harabasz index.
+    ch_scores : dict[int, float]
+        ``{k: ch_score}`` for every K tried.
+    """
+    from sklearn_extra.cluster import KMedoids
+    from sklearn.metrics import calinski_harabasz_score
+    from sklearn.preprocessing import normalize
+
+    n_reps = representative_embeddings.shape[0]
+    k_max = min(k_max, n_reps - 1)
+    if k_min > k_max:
+        k_min = max(2, k_max // 2)
+
+    emb_norm = normalize(representative_embeddings, norm="l2")
+
+    logger.info(
+        "Calinski-Harabasz: Estimating K* on %d representative embeddings (dim=%d)",
+        n_reps, emb_norm.shape[1],
+    )
+    logger.info("  Candidate range: K ∈ [%d, %d]", k_min, k_max)
+
+    scores: dict[int, float] = {}
+    for k in range(k_min, k_max + 1):
+        try:
+            km = KMedoids(
+                n_clusters=k,
+                metric="cosine",
+                method="alternate",
+                init="k-medoids++",
+                max_iter=max_iter,
+                random_state=random_state,
+            )
+            labels = km.fit_predict(emb_norm)
+            ch = calinski_harabasz_score(emb_norm, labels)
+            scores[k] = float(ch)
+            logger.info("  K=%d  CH=%.2f", k, ch)
+        except Exception as e:
+            logger.warning("  K=%d  failed: %s", k, e)
+            continue
+
+    if not scores:
+        logger.warning("All CH fits failed — defaulting K*=%d", k_min)
+        return k_min, {}
+
+    k_star = max(scores, key=scores.get)  # type: ignore[arg-type]
+    logger.info("Calinski-Harabasz K* = %d (CH=%.2f)", k_star, scores[k_star])
+    return k_star, scores
+
+
+# ---------------------------------------------------------------------------
+# Multi-method ensemble K* estimation (Stage 6)
+# ---------------------------------------------------------------------------
+
+def estimate_k_star(
+    representative_embeddings: np.ndarray,
+    k_min: int = 5,
+    k_max: int = 50,
+    method: str = "silhouette",
+    random_state: int = 42,
+) -> tuple[int, dict]:
+    """Multi-method K* estimation dispatcher.
+
+    Parameters
+    ----------
+    representative_embeddings : np.ndarray
+        Shape ``(K₀, dim)`` — embeddings of representative documents.
+    k_min, k_max : int
+        Candidate K range.
+    method : str
+        Estimation method:
+        - ``"silhouette"`` — elbow on silhouette curve (default, recommended)
+        - ``"calinski"``   — Calinski-Harabasz variance-ratio (peaks at optimal K)
+        - ``"bic"``        — GMM + BIC (minimise BIC)
+        - ``"ensemble"``   — median of silhouette-elbow, CH, and BIC
+    random_state : int
+
+    Returns
+    -------
+    k_star : int
+    details : dict
+        Method-specific scores and metadata.
+    """
+    logger.info("Stage 6: K* estimation via method=%s", method)
+
+    if method == "silhouette":
+        k_star, scores = estimate_k_star_silhouette(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        details = {"method": "silhouette", "k_star": k_star, "scores": scores}
+
+    elif method == "calinski":
+        k_star, scores = estimate_k_star_calinski(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        details = {"method": "calinski", "k_star": k_star, "scores": scores}
+
+    elif method == "bic":
+        k_star, scores = estimate_k_star_bic(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        details = {"method": "bic", "k_star": k_star, "scores": scores}
+
+    elif method == "ensemble":
+        k_sil, sil_scores = estimate_k_star_silhouette(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        k_ch, ch_scores = estimate_k_star_calinski(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        k_bic, bic_scores = estimate_k_star_bic(
+            representative_embeddings, k_min=k_min, k_max=k_max,
+            random_state=random_state,
+        )
+        # Median of three methods → robust consensus
+        candidates = sorted([k_sil, k_ch, k_bic])
+        k_star = int(np.ceil(np.median(candidates)))
+        logger.info(
+            "Ensemble: silhouette-elbow→%d, CH→%d, BIC→%d → median K*=%d",
+            k_sil, k_ch, k_bic, k_star,
+        )
+        details = {
+            "method": "ensemble",
+            "k_star": k_star,
+            "k_silhouette": k_sil,
+            "k_calinski": k_ch,
+            "k_bic": k_bic,
+            "silhouette_scores": sil_scores,
+            "calinski_scores": ch_scores,
+            "bic_scores": bic_scores,
+        }
+    else:
+        raise ValueError(f"Unknown K* estimation method: {method!r}")
+
+    logger.info("Stage 6: Final K* = %d (method=%s)", k_star, method)
+    return k_star, details
 
 
 # ---------------------------------------------------------------------------
@@ -293,20 +576,23 @@ def consolidate_labels(
 # Elbow detection (Kneedle algorithm)
 # ---------------------------------------------------------------------------
 
-def find_elbow(k_values: list[int], inertias: list[float]) -> int:
-    """Detect the elbow in an inertia-vs-k curve.
+def find_elbow(k_values: list[int], values: list[float]) -> int:
+    """Detect the elbow / knee in a value-vs-k curve.
 
-    Uses the geometric "maximum distance to the line" approach:
-    draw a straight line from the first point (k_min, inertia_max) to the
-    last point (k_max, inertia_min) and pick the k whose inertia is
-    farthest above that line.
+    Uses the geometric "maximum distance to the line" approach (Kneedle):
+    draw a straight line from the first to the last point and pick the k
+    whose value is farthest from that line.
+
+    Works for both **decreasing** curves (inertia — elbow) and curves that
+    have been transformed to be decreasing (e.g. max-sil − sil for silhouette
+    elbow detection).
 
     Parameters
     ----------
     k_values : list[int]
         Candidate k values (sorted ascending).
-    inertias : list[float]
-        Corresponding inertia for each k.
+    values : list[float]
+        Corresponding metric value for each k (e.g. inertia, residual, etc.).
 
     Returns
     -------
@@ -319,25 +605,25 @@ def find_elbow(k_values: list[int], inertias: list[float]) -> int:
 
     # Normalise to [0, 1] for numerical stability
     k_arr = np.array(k_values, dtype=float)
-    inert_arr = np.array(inertias, dtype=float)
+    val_arr = np.array(values, dtype=float)
 
     k_norm = (k_arr - k_arr.min()) / (k_arr.max() - k_arr.min() + 1e-12)
-    inert_norm = (inert_arr - inert_arr.min()) / (inert_arr.max() - inert_arr.min() + 1e-12)
+    val_norm = (val_arr - val_arr.min()) / (val_arr.max() - val_arr.min() + 1e-12)
 
     # Line from first to last point
-    p1 = np.array([k_norm[0], inert_norm[0]])
-    p2 = np.array([k_norm[-1], inert_norm[-1]])
+    p1 = np.array([k_norm[0], val_norm[0]])
+    p2 = np.array([k_norm[-1], val_norm[-1]])
     line_vec = p2 - p1
     line_len = np.linalg.norm(line_vec)
 
     if line_len < 1e-12:
-        logger.warning("Flat inertia curve — returning middle k")
+        logger.warning("Flat curve — returning middle k")
         return k_values[len(k_values) // 2]
 
     # Distance of each point from the line
     distances = []
     for i in range(len(k_values)):
-        point = np.array([k_norm[i], inert_norm[i]])
+        point = np.array([k_norm[i], val_norm[i]])
         # Signed distance from point to line (we want the one furthest above)
         d = abs(np.cross(line_vec, p1 - point)) / line_len
         distances.append(d)

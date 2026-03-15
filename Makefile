@@ -30,9 +30,12 @@ help:
 	@echo "                                     propagate labels → full dataset"
 	@echo ""
 	@echo "  ── SEAL-Clust full framework ──"
-	@echo "  run-sealclust data=<d> [k=0]       embed + t-SNE + elbow auto-k + K-Medoids"
-	@echo "                                     k=0 (default) → auto-k via Elbow"
-	@echo "                                     k=N → manual k, skip Elbow"
+	@echo "  run-sealclust data=<d> [k0=300] [kstar=0] [kmethod=silhouette]"
+	@echo "                                     Stages 1–7: embed + PCA + overcluster + labels + K* + consolidate"
+	@echo "                                     kmethod: silhouette (default) | calinski | bic | ensemble"
+	@echo "                                     k0=N → overclustering size, kstar=N → manual K*"
+	@echo "  run-sealclust-full data=<d> [k0=300] [kstar=0] [kmethod=silhouette]"
+	@echo "                                     Stages 1–9 + evaluation in one command"
 	@echo "  run-sealclust-classify data=<d> run=<run_dir>"
 	@echo "                                     classify prototypes (--medoid_mode)"
 	@echo "  run-sealclust-propagate data=<d> run=<run_dir>"
@@ -52,12 +55,10 @@ help:
 	@echo "    make run-gmm-propagate data=massive_scenario run=./runs/<run_dir>"
 	@echo "    make run-step3 data=massive_scenario run=./runs/<run_dir>"
 	@echo ""
-	@echo "  Example (SEAL-Clust pipeline, auto-k):"
-	@echo "    make run-sealclust data=massive_scenario"
-	@echo "    make run-step1 data=massive_scenario"
-	@echo "    make run-sealclust-classify data=massive_scenario run=./runs/<run_dir>"
-	@echo "    make run-sealclust-propagate data=massive_scenario run=./runs/<run_dir>"
-	@echo "    make run-step3 data=massive_scenario run=./runs/<run_dir>"
+	@echo "  Example (SEAL-Clust pipeline, full end-to-end):"
+	@echo "    make run-sealclust-full data=massive_scenario"
+	@echo "    make run-sealclust-full data=massive_scenario k0=200 kmethod=ensemble"
+	@echo "    make run-sealclust-full data=massive_scenario kstar=18"
 	@echo ""
 
 setup:
@@ -205,15 +206,27 @@ endif
 # usage: make run-sealclust data=massive_scenario
 #        make run-sealclust data=massive_scenario k0=200  (custom K₀)
 #        make run-sealclust data=massive_scenario kstar=18 (manual K*)
-# Default: Stages 1–7 (Embed + PCA + Overcluster + Label Discovery + BIC + Consolidate)
+#        make run-sealclust data=massive_scenario kmethod=ensemble
+# Default: Stages 1–7 (Embed + PCA + Overcluster + Label Discovery + K* + Consolidate)
 k0 ?= 300
 kstar ?= 0
+kmethod ?= silhouette
 run-sealclust:
 ifndef data
 	$(error data is required, e.g. make run-sealclust data=massive_scenario)
 endif
 	mkdir -p logs
-	.venv/bin/tc-sealclust --data $(data) --k0 $(k0) --k_star $(kstar) 2>&1 | tee logs/$(data)_sealclust.log
+	.venv/bin/tc-sealclust --data $(data) --k0 $(k0) --k_star $(kstar) --k_method $(kmethod) 2>&1 | tee logs/$(data)_sealclust.log
+
+# usage: make run-sealclust-full data=massive_scenario k0=300
+#        make run-sealclust-full data=massive_scenario k0=300 kstar=18
+# Runs the entire SEALClust pipeline end-to-end: Stages 1-9 + evaluation.
+run-sealclust-full:
+ifndef data
+	$(error data is required, e.g. make run-sealclust-full data=massive_scenario)
+endif
+	mkdir -p logs
+	.venv/bin/tc-sealclust --data $(data) --k0 $(k0) --k_star $(kstar) --k_method $(kmethod) --full 2>&1 | tee logs/$(data)_sealclust_full.log
 
 # usage: make run-sealclust-classify data=massive_scenario run=./runs/<run_dir>
 run-sealclust-classify:

@@ -11,16 +11,28 @@ The 9-Stage Pipeline
   3. **Overclustering** — K-Medoids with K₀ >> K* (e.g. 300)
   4. **Representative Selection** — medoid documents (actual docs, not centroids)
   5. **Label Discovery** — LLM proposes labels from representative docs ONLY
-  6. **K* Estimation** — GMM + BIC on representative embeddings
+  6. **K* Estimation** — Silhouette-elbow (default), Calinski-Harabasz, BIC, or ensemble
   7. **Label Consolidation** — LLM merges candidate labels to exactly K*
   8. **Representative Classification** — LLM classifies K₀ reps into K* labels
   9. **Label Propagation** — propagate rep labels to all documents
 
 Usage Modes
 -----------
-**Full pipeline** (Stages 1–7, then 8–9 separately)::
+**Full end-to-end pipeline** (Stages 1–9 + evaluation in one command)::
 
-    # Stages 1–7: Embed + PCA + Overcluster + Label Discovery + BIC + Consolidate
+    tc-sealclust --data massive_scenario --k0 300 --full
+
+**Full pipeline with manual K***::
+
+    tc-sealclust --data massive_scenario --k0 300 --k_star 18 --full
+
+**Full pipeline with specific K* estimation method**::
+
+    tc-sealclust --data massive_scenario --k0 300 --k_method ensemble --full
+
+**Stages 1–7 only** (then 8–9 separately)::
+
+    # Stages 1–7: Embed + PCA + Overcluster + Label Discovery + K* + Consolidate
     tc-sealclust --data massive_scenario
 
     # Stage 8: Classify representatives with K* labels
@@ -36,13 +48,16 @@ Usage Modes
 
     tc-sealclust --data massive_scenario --k0 200
 
-**Manual K* (skip BIC estimation)**::
+**Manual K* (skip estimation)**::
 
     tc-sealclust --data massive_scenario --k_star 18
 
-**Use t-SNE instead of PCA**::
+**K* estimation methods**::
 
-    tc-sealclust --data massive_scenario --reduction tsne
+    tc-sealclust --data massive_scenario --k_method silhouette   # default, elbow on silhouette
+    tc-sealclust --data massive_scenario --k_method calinski     # Calinski-Harabasz (peaks at K*)
+    tc-sealclust --data massive_scenario --k_method bic          # GMM + BIC
+    tc-sealclust --data massive_scenario --k_method ensemble     # median(silhouette, CH, bic)
 """
 
 from __future__ import annotations
@@ -61,6 +76,7 @@ from text_clustering.config import (
     SEALCLUST_K0,
     SEALCLUST_BIC_K_MIN,
     SEALCLUST_BIC_K_MAX,
+    SEALCLUST_K_METHOD,
     SEALCLUST_REDUCTION,
     SEALCLUST_PCA_DIMS,
     SEALCLUST_LABEL_CHUNK_SIZE,
@@ -75,7 +91,9 @@ from text_clustering.embedding import compute_embeddings
 from text_clustering.dimreduce import reduce_tsne, reduce_pca
 from text_clustering.sealclust import (
     run_sealclust_clustering,
+    estimate_k_star,
     estimate_k_star_bic,
+    estimate_k_star_calinski,
     discover_labels,
     consolidate_labels,
     get_prototypes,
@@ -150,7 +168,7 @@ def run_pipeline(args) -> str:
     if args.k_star:
         logger.info("K* (manual)   : %d", args.k_star)
     else:
-        logger.info("K* (auto)     : GMM + BIC [%d–%d]", args.bic_k_min, args.bic_k_max)
+        logger.info("K* (auto)     : %s [%d–%d]", args.k_method, args.bic_k_min, args.bic_k_max)
     logger.info("Run dir       : %s", run_dir)
     logger.info("-" * 70)
     start = time.time()
@@ -243,30 +261,35 @@ def run_pipeline(args) -> str:
         )
         _write_json(labels_proposed_path, candidate_labels)
 
-    # ── Stage 6: K* Estimation via GMM + BIC on representative embeddings ──
-    # Use the REDUCED (PCA/t-SNE) embeddings of representatives for BIC.
-    # Full 384D embeddings cause BIC to over-penalise and always pick smallest K.
+    # ── Stage 6: K* Estimation on FULL reduced embeddings ──
+    # Run K* estimation on ALL documents (not just representatives) for better
+    # statistical power.  The full dataset has clearer cluster structure than
+    # the K₀ medoids which are already fragmented by overclustering.
     medoid_indices_sorted = sorted(int(i) for i in medoid_indices)
     representative_embeddings = embeddings_reduced[medoid_indices_sorted]
 
     if args.k_star:
         k_star = args.k_star
-        logger.info("Stage 6: Using manual K*=%d (BIC skipped)", k_star)
+        logger.info("Stage 6: Using manual K*=%d (estimation skipped)", k_star)
         bic_scores = {}
     else:
-        logger.info("Stage 6: Estimating K* via GMM + BIC on %d representative embeddings …",
-                    representative_embeddings.shape[0])
-        k_star, bic_scores = estimate_k_star_bic(
-            representative_embeddings,
+        logger.info("Stage 6: Estimating K* via %s on %d FULL embeddings (dim=%d) …",
+                    args.k_method, embeddings_reduced.shape[0], embeddings_reduced.shape[1])
+        k_star, k_details = estimate_k_star(
+            embeddings_reduced,
             k_min=args.bic_k_min,
             k_max=args.bic_k_max,
+            method=args.k_method,
             random_state=args.seed,
         )
-        _write_json(os.path.join(run_dir, "bic_scores.json"), {
+        _write_json(os.path.join(run_dir, "k_estimation.json"), {
             "k_star": k_star,
+            "method": args.k_method,
             "k_min": args.bic_k_min,
             "k_max": args.bic_k_max,
-            "scores": {str(k): v for k, v in bic_scores.items()},
+            "n_samples": int(embeddings_reduced.shape[0]),
+            "details": {str(k): v for k, v in k_details.get("scores", k_details.get("silhouette_scores", {})).items()},
+            **{k: v for k, v in k_details.items() if k not in ("scores", "silhouette_scores", "bic_scores", "calinski_scores")},
         })
 
     # ── Stage 7: Label Consolidation — merge to exactly K* ──
@@ -300,7 +323,7 @@ def run_pipeline(args) -> str:
             "k": k0,
             "k0": k0,
             "k_star": k_star,
-            "k_star_method": "manual" if args.k_star else "bic",
+            "k_star_method": "manual" if args.k_star else args.k_method,
             "n_candidate_labels": len(candidate_labels),
             "n_final_labels": len(final_labels),
             "embedding_model": args.embedding_model,
@@ -325,7 +348,7 @@ def run_pipeline(args) -> str:
         metadata.update({
             "pipeline": "sealclust_v2",
             "k_star": k_star,
-            "k_star_method": "manual" if args.k_star else "bic",
+            "k_star_method": "manual" if args.k_star else args.k_method,
             "n_candidate_labels": len(candidate_labels),
             "n_final_labels": len(final_labels),
         })
@@ -336,7 +359,7 @@ def run_pipeline(args) -> str:
     logger.info("SEALClust Stages 1–7 complete in %.1fs", elapsed)
     logger.info("  Documents     : %d", n_documents)
     logger.info("  K₀ (overcl.)  : %d  (%.1f× compression)", k0, n_documents / max(k0, 1))
-    logger.info("  K* (optimal)  : %d  (%s)", k_star, "manual" if args.k_star else "BIC")
+    logger.info("  K* (optimal)  : %d  (%s)", k_star, "manual" if args.k_star else args.k_method)
     logger.info("  Candidate labs: %d → Final labs: %d", len(candidate_labels), len(final_labels))
     logger.info("  Reduction     : %s (%dD → %dD)", args.reduction,
                 embeddings.shape[1], embeddings_reduced.shape[1])
@@ -433,6 +456,82 @@ def propagate(args) -> None:
         logger.warning("  %d documents labelled 'Unsuccessful'", unsuccessful)
 
 
+# ── full end-to-end pipeline (Stages 1–9 + evaluation) ────────────────────
+
+def run_full_pipeline(args) -> None:
+    """Run the complete SEALClust pipeline end-to-end.
+
+    Chains all 9 stages plus evaluation in a single command:
+      Stages 1–7 : Embed → Reduce → Overcluster → Reps → Labels → K* → Consolidate
+      Stage 8    : Classify representatives into K* labels via LLM
+      Stage 9    : Propagate representative labels to all documents
+      Evaluation : Compute ACC, NMI, ARI against ground truth
+    """
+    import subprocess
+    import sys
+
+    full_start = time.time()
+
+    # ── Stages 1–7 ──
+    run_dir = run_pipeline(args)
+
+    # ── Stage 8: Classify representatives ──
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info("SEALClust Stage 8 — Classify Representatives")
+    logger.info("=" * 70)
+
+    from text_clustering.pipeline.classification import main as classify_main, build_parser as classify_parser
+    classify_args = classify_parser().parse_args([
+        "--data", args.data,
+        "--run_dir", run_dir,
+        "--medoid_mode",
+    ])
+    if args.use_large:
+        classify_args.use_large = True
+    classify_main(classify_args)
+
+    # ── Stage 9: Propagate ──
+    logger.info("")
+    args.run_dir = run_dir
+    propagate(args)
+
+    # ── Evaluation ──
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info("SEALClust — Evaluation")
+    logger.info("=" * 70)
+
+    from text_clustering.pipeline.evaluation import main as eval_main, build_parser as eval_parser
+    eval_args = eval_parser().parse_args([
+        "--data", args.data,
+        "--run_dir", run_dir,
+    ])
+    if args.use_large:
+        eval_args.use_large = True
+    eval_main(eval_args)
+
+    # ── Summary ──
+    results_path = os.path.join(run_dir, "results.json")
+    if os.path.exists(results_path):
+        with open(results_path) as f:
+            results = json.load(f)
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("SEALClust — FULL PIPELINE COMPLETE")
+        logger.info("=" * 70)
+        logger.info("  Dataset       : %s", args.data)
+        logger.info("  K₀ (overcl.)  : %d", args.k0)
+        logger.info("  K* (final)    : %d  (%s)", results.get("n_clusters_pred", "?"),
+                    "manual" if args.k_star else args.k_method)
+        logger.info("  ACC           : %.4f", results["ACC"])
+        logger.info("  NMI           : %.4f", results["NMI"])
+        logger.info("  ARI           : %.4f", results["ARI"])
+        logger.info("  Run dir       : %s", run_dir)
+        logger.info("  Total time    : %.1fs", time.time() - full_start)
+        logger.info("=" * 70)
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -480,11 +579,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     # K* estimation
     parser.add_argument("--k_star", type=int, default=SEALCLUST_K if SEALCLUST_K > 0 else 0,
-                        help="Manual K* override. 0 = auto via BIC (default).")
+                        help="Manual K* override. 0 = auto via selected method (default).")
+    parser.add_argument("--k_method", type=str, default=SEALCLUST_K_METHOD,
+                        choices=["silhouette", "calinski", "bic", "ensemble"],
+                        help="K* estimation method: silhouette (default, elbow on silhouette curve), "
+                             "calinski (CH variance-ratio), bic (GMM+BIC), or ensemble (median of all)")
     parser.add_argument("--bic_k_min", type=int, default=SEALCLUST_BIC_K_MIN,
-                        help="Min K for BIC search (default: 5)")
+                        help="Min K for K* search (default: 5)")
     parser.add_argument("--bic_k_max", type=int, default=SEALCLUST_BIC_K_MAX,
-                        help="Max K for BIC search (default: 50)")
+                        help="Max K for K* search (default: 50)")
 
     # Label discovery
     parser.add_argument("--label_chunk_size", type=int, default=SEALCLUST_LABEL_CHUNK_SIZE,
@@ -496,6 +599,10 @@ def build_parser() -> argparse.ArgumentParser:
     # Propagation (Stage 9)
     parser.add_argument("--propagate", action="store_true",
                         help="Run Stage 9 (label propagation) — requires --run_dir")
+
+    # Full end-to-end mode (Stages 1-9 + evaluation)
+    parser.add_argument("--full", action="store_true",
+                        help="Run the full pipeline end-to-end: Stages 1-9 + evaluation in one command")
 
     # Legacy compatibility
     parser.add_argument("--sealclust_k", type=int, default=0,
@@ -516,6 +623,8 @@ def main(args) -> None:
         if not args.run_dir:
             raise SystemExit("--run_dir is required when --propagate is set")
         propagate(args)
+    elif args.full:
+        run_full_pipeline(args)
     else:
         run_pipeline(args)
 
