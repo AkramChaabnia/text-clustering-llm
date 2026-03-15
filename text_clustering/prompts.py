@@ -14,7 +14,7 @@ prompt_construct_merge_label(label_list, target_k=None)
     The base prompt is identical to the original paper (ECNU-Text-Computing).
     target_k is an optional escape hatch: if provided, an extra sentence
     instructs the model to produce approximately that many final labels.
-    This should NOT be used with capable models (gemini, GPT-4) — it forces
+    This should NOT be used with capable models (e.g. gemini-2.0-flash) — it forces
     the model to fill all k slots with spurious categories instead of
     producing a naturally consolidated set.  It exists only as a fallback
     for weaker models that under-consolidate without guidance.
@@ -26,7 +26,7 @@ prompt_construct_classify(label_list, sentence)
 
 def prompt_construct_generate_label(sentence_list, given_labels):
     json_example = {"labels": ["label name", "label name"]}
-    prompt = f"Given the labels, under a text classicifation scenario, can all these text match the label given? If the sentence does not match any of the label, please generate a meaningful new label name.\n \
+    prompt = f"Given the labels, under a text classification scenario, can all these text match the label given? If the sentence does not match any of the label, please generate a meaningful new label name.\n \
             Labels: {given_labels}\n \
             Sentences: {sentence_list} \n \
             You should NOT return meaningless label names such as 'new_label_1' or 'unknown_topic_1' and only return the new label names, please return in json format like: {json_example}"

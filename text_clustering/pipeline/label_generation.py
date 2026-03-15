@@ -171,7 +171,7 @@ def main(args):
     write_json(os.path.join(run_dir, "labels_proposed.json"), all_labels)
 
     # target_k: only pass when explicitly requested via --target_k.
-    # The paper does NOT use a target — capable models (gemini, GPT-4) should
+    # The paper does NOT use a target — capable models (e.g. gemini-2.0-flash) should
     # consolidate naturally.  Forcing k fills slots with spurious labels.
     forced_k = args.target_k if hasattr(args, "target_k") and args.target_k is not None else None
     final_labels = merge_labels(args, all_labels, client, target_k=forced_k)
