@@ -1,419 +1,1331 @@
-# Research Log — Text Clustering as Classification with LLMs
-> **Project**: PPD — Text Clustering as Classification with LLMs  
-> **Programme**: M2 MLSD, Université Paris Cité  
+# Research Findings — Text Clustering as Classification with LLMs# Research Findings — Text Clustering as Classification with LLMs# Research Log — Text Clustering as Classification with LLMs
+
+
+
+> **Project**: PPD — M2 MLSD, Université Paris Cité  > **Project**: PPD — Text Clustering as Classification with LLMs  
+
 > **Period**: 2026-02-18 → ongoing  
-> **Goal**: Reproduce the baseline results from [arXiv:2410.00927](https://arxiv.org/abs/2410.00927) using free LLMs via OpenRouter, then run complementary experiments.
+
+> **Branch**: `feature/kmedoids`  > **Project**: PPD — M2 MLSD, Université Paris Cité  > **Programme**: M2 MLSD, Université Paris Cité  
+
+> **Goal**: Reproduce the baseline results from [arXiv:2410.00927](https://arxiv.org/abs/2410.00927), then build SEAL-Clust — a scalable, cost-efficient alternative.
+
+> **Period**: 2026-02-18 → ongoing  > **Period**: 2026-02-18 → ongoing  
 
 ---
+
+> **Branch**: `feature/kmedoids`  > **Goal**: Reproduce the baseline results from [arXiv:2410.00927](https://arxiv.org/abs/2410.00927) using free LLMs via OpenRouter, then run complementary experiments.
 
 ## Table of Contents
 
+> **Goal**: Reproduce the baseline results from [arXiv:2410.00927](https://arxiv.org/abs/2410.00927), then build SEAL-Clust — a scalable, cost-efficient alternative.
+
 1. [Paper Overview](#1-paper-overview)
-2. [Setup](#2-setup)
-3. [Dataset](#3-dataset)
-4. [Code Changes](#4-code-changes)
+
+2. [What Is SEAL-Clust?](#2-what-is-seal-clust)---
+
+3. [Code Fixes Applied to the Original Repository](#3-code-fixes-applied-to-the-original-repository)
+
+4. [Improvements Added](#4-improvements-added)---
+
 5. [API & Model Investigation](#5-api--model-investigation)
-6. [Model Probe Results](#6-model-probe-results)
+
+6. [Model Probe Results](#6-model-probe-results)## Table of Contents
+
 7. [Pipeline Execution Log](#7-pipeline-execution-log)
-   - [Run 01 — massive_scenario · trinity-large-preview · 2026-02-20](#run-01--massive_scenario--arcee-aitrinity-large-previewfree--2026-02-20)
-   - [Run 02 — Merge Investigation & Model Switch](#run-02--merge-investigation--model-switch)
-   - [Run 02 — `massive_scenario` · gemini-2.0-flash-001 · `target_k=18` · 2026-02-21](#run-02--massive_scenario--googlegemini-20-flash-001--target_k18--2026-02-21)
-   - [Run 03 — `massive_scenario` · gemini-2.0-flash-001 · no `target_k` · 2026-02-21](#run-03--massive_scenario--googlegemini-20-flash-001--no-target_k--2026-02-21)
-8. [Results](#8-results)
-9. [Next Steps](#9-next-steps)
+
+8. [All Experimental Results](#8-all-experimental-results)## Table of Contents
+
+9. [Key Findings](#9-key-findings)
+
+10. [Cost Analysis](#10-cost-analysis)1. [Paper Overview](#1-paper-overview)
+
+11. [Future Work](#11-future-work)
+
+1. [Paper Overview](#1-paper-overview)2. [Setup](#2-setup)
 
 ---
+
+2. [What Is SEAL-Clust?](#2-what-is-seal-clust)3. [Dataset](#3-dataset)
 
 ## 1. Paper Overview
 
+3. [Code Fixes Applied to the Original Repository](#3-code-fixes-applied-to-the-original-repository)4. [Code Changes](#4-code-changes)
+
 **Title**: Text Clustering as Classification with LLMs  
-**Authors**: Chen Huang, Guoxiu He  
+
+**Authors**: Chen Huang, Guoxiu He  4. [Improvements Added](#4-improvements-added)5. [API & Model Investigation](#5-api--model-investigation)
+
 **Venue**: arXiv 2024 — [2410.00927](https://arxiv.org/abs/2410.00927)  
+
+**Original repo**: [ECNU-Text-Computing/Text-Clustering-via-LLM](https://github.com/ECNU-Text-Computing/Text-Clustering-via-LLM)5. [API & Model Investigation](#5-api--model-investigation)6. [Model Probe Results](#6-model-probe-results)
+
+
+
+### Core Idea6. [Model Probe Results](#6-model-probe-results)7. [Pipeline Execution Log](#7-pipeline-execution-log)
+
+
+
+The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM:7. [Pipeline Execution Log](#7-pipeline-execution-log)   - [Run 01 — massive_scenario · trinity-large-preview · 2026-02-20](#run-01--massive_scenario--arcee-aitrinity-large-previewfree--2026-02-20)
+
+
+
+1. **Label generation** — given 20% seed labels from ground truth, the LLM proposes new labels by reading chunks of input texts. Duplicates are merged in a second LLM call.8. [All Experimental Results](#8-all-experimental-results)   - [Run 02 — Merge Investigation & Model Switch](#run-02--merge-investigation--model-switch)
+
+2. **Classification** — the LLM assigns each text to one of the generated labels, one text at a time.
+
+3. **Evaluation** — standard clustering metrics: ACC (Hungarian alignment), NMI, ARI.9. [Key Findings](#9-key-findings)   - [Run 02 — `massive_scenario` · gemini-2.0-flash-001 · `target_k=18` · 2026-02-21](#run-02--massive_scenario--googlegemini-20-flash-001--target_k18--2026-02-21)
+
+
+
+### Pipeline Diagram10. [Cost Analysis](#10-cost-analysis)   - [Run 03 — `massive_scenario` · gemini-2.0-flash-001 · no `target_k` · 2026-02-21](#run-03--massive_scenario--googlegemini-20-flash-001--no-target_k--2026-02-21)
+
+
+
+```11. [Future Work](#11-future-work)8. [Results](#8-results)
+
+dataset/small.jsonl  (texts + ground-truth labels)
+
+        │9. [Next Steps](#9-next-steps)
+
+        ▼
+
+  [Step 0]  seed_labels.py        → picks 20% of true labels at random---
+
+        ▼
+
+  runs/chosen_labels.json---
+
+        ▼
+
+  [Step 1]  label_generation.py   → chunks of 15 texts → LLM proposes + merges labels## 1. Paper Overview
+
+        ▼
+
+  runs/<run_dir>/labels_merged.json## 1. Paper Overview
+
+        ▼
+
+  [Step 2]  classification.py     → one LLM call per text → assigns a label**Title**: Text Clustering as Classification with LLMs  
+
+        ▼
+
+  runs/<run_dir>/classifications.json**Authors**: Chen Huang, Guoxiu He  **Title**: Text Clustering as Classification with LLMs  
+
+        ▼
+
+  [Step 3]  evaluation.py         → Hungarian alignment → ACC / NMI / ARI**Venue**: arXiv 2024 — [2410.00927](https://arxiv.org/abs/2410.00927)  **Authors**: Chen Huang, Guoxiu He  
+
+        ▼
+
+  runs/<run_dir>/results.json**Original repo**: [ECNU-Text-Computing/Text-Clustering-via-LLM](https://github.com/ECNU-Text-Computing/Text-Clustering-via-LLM)**Venue**: arXiv 2024 — [2410.00927](https://arxiv.org/abs/2410.00927)  
+
+```
+
 **Original repo**: [ECNU-Text-Computing/Text-Clustering-via-LLM](https://github.com/ECNU-Text-Computing/Text-Clustering-via-LLM)
 
-### Core idea
+### Paper Baseline (Table 2 — `gpt-3.5-turbo-0125`, 20% seed labels, batch=15)
 
-The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM. Instead of embeddings + k-means, the approach is:
+### Core Idea
 
-1. **Label generation** — given a small set of seed labels (20% of ground truth), the LLM proposes new label names by reading chunks of input texts. Duplicate/similar labels are merged in a second LLM call.
-2. **Classification** — the LLM assigns each text to one of the generated labels, one text at a time.
+| Dataset | ACC | NMI | ARI |
+
+|---------|-----|-----|-----|### Core idea
+
+| `massive_scenario` | **71.75** | **78.00** | **56.86** |
+
+| `massive_intent` | 64.12 | 65.44 | 48.92 |The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM:
+
+| `go_emotion` | 31.66 | 27.39 | 13.50 |
+
+| `arxiv_fine` | 38.78 | 57.43 | 20.55 |The paper reframes unsupervised text clustering as a **classification problem** driven by an LLM. Instead of embeddings + k-means, the approach is:
+
+| `mtop_intent` | 72.18 | 78.78 | 71.93 |
+
+1. **Label generation** — given 20% seed labels from ground truth, the LLM proposes new labels by reading chunks of input texts. Duplicates are merged in a second LLM call.
+
+---
+
+2. **Classification** — the LLM assigns each text to one of the generated labels, one text at a time.1. **Label generation** — given a small set of seed labels (20% of ground truth), the LLM proposes new label names by reading chunks of input texts. Duplicate/similar labels are merged in a second LLM call.
+
+## 2. What Is SEAL-Clust?
+
+3. **Evaluation** — standard clustering metrics: ACC (Hungarian alignment), NMI, ARI.2. **Classification** — the LLM assigns each text to one of the generated labels, one text at a time.
+
+**SEAL-Clust** (**S**calable **E**fficient **A**utonomous **L**LM **Clust**ering) separates semantic reasoning (LLM) from large-scale clustering computation (embeddings + traditional algorithms).
+
 3. **Evaluation** — standard clustering metrics: ACC (Hungarian alignment), NMI, ARI.
 
-### Pipeline — step by step
+| Problem | Original Paper | SEAL-Clust Solution |
 
-**Step 0 — Seed label selection**  
-Before running the LLM, 20% of the ground-truth labels are randomly sampled per dataset and written to `chosen_labels.json`. These seeds are handed to the LLM in Step 1 as a starting point, which anchors the taxonomy and avoids completely free-form generation.
+|---------|---------------|---------------------|### Pipeline Diagram
 
-**Step 1 — Label generation**  
-The dataset is shuffled and split into chunks of 15 texts. For each chunk, the LLM is shown the current label set and asked: *"Do any of these texts require a new label that doesn't already exist?"* It adds new candidate labels when needed. Once all chunks are processed, a second LLM call merges and deduplicates near-synonyms (e.g. `"email"` and `"email_management"` collapse into one). The result is the final label set used in Step 2.
+| **High LLM cost** | One API call per document (~3,000 calls) | Only prototype docs go to the LLM (~100–300 calls) |
 
-**Step 2 — Classification**  
-Each text is sent individually to the LLM with the full label list: *"Which of these labels fits this text best?"* The predicted label is accumulated into a dict `{ label: [text, text, ...] }` and saved as `classifications.json`. This step makes one API call per sample — ~3,000 calls for most datasets. Progress is checkpointed every 200 samples so interrupted runs can resume without starting over.
+| **Not fully unsupervised** | Requires 20% seed labels from ground truth | Microclustering needs zero labels |### Pipeline — step by step
 
-**Step 3 — Evaluation**  
-Predicted labels are matched to ground-truth labels using the Hungarian algorithm (optimal one-to-one alignment), then ACC, NMI and ARI are computed. Results are printed and saved to `results.json`.
+| **Undefined k** | LLM implicitly decides k during label merge | Systematic K\* via BIC / silhouette / Calinski-Harabasz |
 
-### Pipeline diagram
+| **Scalability** | Linear in N (all samples → LLM) | Sub-linear: embed once, cluster locally, LLM on M << N prototypes |```
 
-```
-dataset/
-  └── small.jsonl  (texts + ground-truth labels)
-          │
-          ▼
-  [Step 0]  seed_labels.py
-          │  picks 20% of true labels at random
-          ▼
-  runs/chosen_labels.json
-          │
-          ▼
-  [Step 1]  label_generation.py  --data <dataset>
-          │  chunks of 15 texts → LLM proposes labels → merge call
-          ▼
-  runs/<dataset>_small_<timestamp>/
-    labels_true.json        (ground-truth label list)
-    labels_proposed.json    (before merge)
+
+
+### The 9-Stage Architecture (SEAL-Clust v2)dataset/small.jsonl  (texts + ground-truth labels)**Step 0 — Seed label selection**  
+
+
+
+```        │Before running the LLM, 20% of the ground-truth labels are randomly sampled per dataset and written to `chosen_labels.json`. These seeds are handed to the LLM in Step 1 as a starting point, which anchors the taxonomy and avoids completely free-form generation.
+
+┌─────────────────────────────────────────────────────────────────┐
+
+│  Stage 1: Document Embedding    all-MiniLM-L6-v2 → 384D        │        ▼
+
+│  Stage 2: Dimensionality Reduction    PCA 384D → 50D           │
+
+│  Stage 3: Overclustering    K-Medoids K₀=300 → 300 clusters    │  [Step 0]  seed_labels.py        → picks 20% of true labels at random**Step 1 — Label generation**  
+
+│  Stage 4: Representative Selection    Extract 300 medoid docs   │
+
+│  Stage 5: Label Discovery    LLM reads reps → candidate labels  │        ▼The dataset is shuffled and split into chunks of 15 texts. For each chunk, the LLM is shown the current label set and asked: *"Do any of these texts require a new label that doesn't already exist?"* It adds new candidate labels when needed. Once all chunks are processed, a second LLM call merges and deduplicates near-synonyms (e.g. `"email"` and `"email_management"` collapse into one). The result is the final label set used in Step 2.
+
+│  Stage 6: K* Estimation    Silhouette-elbow / manual → K*       │
+
+│  Stage 7: Label Consolidation    LLM merges → exactly K* labels │  runs/chosen_labels.json
+
+│  Stage 8: Classification    LLM classifies 300 reps → K* labels │
+
+│  Stage 9: Label Propagation    Each doc inherits medoid's label  │        ▼**Step 2 — Classification**  
+
+└─────────────────────────────────────────────────────────────────┘
+
+```  [Step 1]  label_generation.py   → chunks of 15 texts → LLM proposes + merges labelsEach text is sent individually to the LLM with the full label list: *"Which of these labels fits this text best?"* The predicted label is accumulated into a dict `{ label: [text, text, ...] }` and saved as `classifications.json`. This step makes one API call per sample — ~3,000 calls for most datasets. Progress is checkpointed every 200 samples so interrupted runs can resume without starting over.
+
+
+
+| Symbol | Meaning | Typical Value |        ▼
+
+|--------|---------|:-------------:|
+
+| **K₀** | Overclustering size (micro-clusters) | 300 |  runs/<run_dir>/labels_merged.json**Step 3 — Evaluation**  
+
+| **K\*** | Final number of categories | 5–50 (auto) or manual |
+
+        ▼Predicted labels are matched to ground-truth labels using the Hungarian algorithm (optimal one-to-one alignment), then ACC, NMI and ARI are computed. Results are printed and saved to `results.json`.
+
+K₀ ≠ K\*. The pipeline over-clusters to get good representatives, then uses the LLM to discover the right number of meaningful categories (K\*).
+
+  [Step 2]  classification.py     → one LLM call per text → assigns a label
+
+---
+
+        ▼### Pipeline diagram
+
+## 3. Code Fixes Applied to the Original Repository
+
+  runs/<run_dir>/classifications.json
+
+The original code was written for OpenAI directly with a paid key. Adapting it to free models via OpenRouter exposed several bugs.
+
+        ▼```
+
+### Fix 1 — `ini_client()` call signature
+
+`main()` called `ini_client(args.api_key)` but `ini_client()` took no arguments → `TypeError` on every run. Fixed: `ini_client()` reads API key from `.env`.  [Step 3]  evaluation.py         → Hungarian alignment → ACC / NMI / ARIdataset/
+
+
+
+### Fix 2 — `response_format` not universally supported        ▼  └── small.jsonl  (texts + ground-truth labels)
+
+The original code always sent `response_format={"type":"json_object"}`. Many models return HTTP 400 or empty body. Fixed: opt-in via `LLM_FORCE_JSON_MODE` env var (default `false`).
+
+  runs/<run_dir>/results.json          │
+
+### Fix 3 — Markdown fence stripping
+
+Free models often wrap JSON in markdown code fences (`` ```json ... ``` ``). The original `eval()` call fails on these. Fixed: `_strip_fenced_json()` applied after every API call.```          ▼
+
+
+
+### Fix 4 — No retry on rate limits  [Step 0]  seed_labels.py
+
+No error handling around API calls — a single 429 silently returned `None`. Fixed: 5-attempt retry with linear backoff (20s, 40s, 60s, 80s).
+
+### Paper Baseline (Table 2 — `gpt-3.5-turbo-0125`, 20% seed labels, batch=15)          │  picks 20% of true labels at random
+
+### Fix 5 — Hardcoded model name
+
+`"gpt-3.5-turbo-0125"` was hardcoded everywhere. Fixed: read from `LLM_MODEL` env var.          ▼
+
+
+
+### Fix 6 — Missing `.env` loading| Dataset | ACC | NMI | ARI |  runs/chosen_labels.json
+
+`load_dotenv()` was never called — all env vars fell back to defaults. Fixed: called at import time in `client.py`.
+
+|---------|-----|-----|-----|          │
+
+### Fix 7 — `LLM_REQUEST_DELAY` not consumed
+
+`.env` defines `LLM_REQUEST_DELAY=4` but no script read it. Without a delay, requests hit rate limit ceilings immediately. Fixed: sleep after each API call.| `massive_scenario` | **71.75** | **78.00** | **56.86** |          ▼
+
+
+
+---| `massive_intent` | 64.12 | 65.44 | 48.92 |  [Step 1]  label_generation.py  --data <dataset>
+
+
+
+## 4. Improvements Added| `go_emotion` | 31.66 | 27.39 | 13.50 |          │  chunks of 15 texts → LLM proposes labels → merge call
+
+
+
+### Package Restructuring| `arxiv_fine` | 38.78 | 57.43 | 20.55 |          ▼
+
+The original 4 flat scripts with duplicated helpers were reorganized into a proper `text_clustering/` package: `client.py`, `config.py`, `llm.py`, `data.py`, `prompts.py`, `pipeline/`.
+
+| `mtop_intent` | 72.18 | 78.78 | 71.93 |  runs/<dataset>_small_<timestamp>/
+
+### Timestamped Run Directories
+
+Each run creates an isolated folder: `runs/<dataset>_<split>_<YYYYMMDD_HHMMSS>/`. Previous runs are never overwritten.    labels_true.json        (ground-truth label list)
+
+
+
+### Checkpoint / Resume (Step 2)---    labels_proposed.json    (before merge)
+
+Progress saved to `checkpoint.json` every 200 samples. Re-running the same command resumes from where it stopped.
+
     labels_merged.json      (final label set)
-          │
-          ▼
-  [Step 2]  classification.py  --run_dir <above>
+
+### `results.json`
+
+Results now written to JSON (ACC, NMI, ARI, sample count, cluster counts, model name, timestamp) — not just stdout.## 2. What Is SEAL-Clust?          │
+
+
+
+### Logging          ▼
+
+All `print()` replaced with Python's `logging` module. Two handlers: stdout (INFO) and `run.log` file (DEBUG) with timestamps.
+
+**SEAL-Clust** (**S**calable **E**fficient **A**utonomous **L**LM **Clust**ering) separates semantic reasoning (LLM) from large-scale clustering computation (embeddings + traditional algorithms).  [Step 2]  classification.py  --run_dir <above>
+
+---
+
           │  one LLM call per text → assigns a label
-          ▼
-    classifications.json    { label: [text, ...] }
-          │
-          ▼
-  [Step 3]  evaluation.py  --run_dir <above>
-          │  Hungarian alignment → ACC / NMI / ARI
-          ▼
-    results.json
-```
-
-### Models used in the paper
-
-| Stage | Model |
-|-------|-------|
-| Label generation | `gpt-3.5-turbo-0125` |
-| Label merging | `gpt-3.5-turbo-0125` |
-| Classification | `gpt-3.5-turbo-0125` |
-| Ablation upper bound | `gpt-4` |
-
-### Datasets (5 main, small split)
-
-| Dataset | Domain | Classes |
-|---------|--------|---------|
-| `massive_intent` | Voice assistant intents | 59 |
-| `massive_scenario` | Voice assistant scenarios | 18 |
-| `go_emotion` | Emotion detection | 27 |
-| `mtop_intent` | Multi-domain intent | 102 |
-| `arxiv_fine` | Academic topics | 93 |
-
----
-
-## 2. Setup
-
-### Toolchain
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Python | 3.12.6 (pyenv) | Runtime |
-| uv | latest | Fast, reproducible package installs |
-| Ruff | 0.15.1 | Linter |
-| Commitizen | 4.13.7 | Conventional commit enforcement |
-
-### Key files added
-
-| File | Purpose |
-|------|---------|
-| `pyproject.toml` | Project metadata and dependencies |
-| `uv.lock` | Pinned lockfile for reproducibility |
-| `requirements.txt` | Pinned fallback for pip users |
-| `.env.example` | Documents every env variable (no secrets) |
-| `text_clustering/client.py` | Thin wrapper: loads `.env`, builds `openai.OpenAI` client for OpenRouter |
-| `.cz.yaml` | Commitizen config (conventional commits) |
-| `.github/workflows/ci.yml` | Lint CI on PRs to `main` / `develop` |
-
-### Dependencies
-
-```
-openai>=1.30.0        — OpenRouter-compatible client
-python-dotenv>=1.0.0  — .env loading
-scikit-learn>=1.4.0   — NMI, ARI metrics
-scipy>=1.13.0         — Hungarian algorithm (ACC)
-numpy>=1.26.0         — used in evaluate.py
-```
-
-### Branching
-
-```
-main       ← stable, tagged releases
-  └── develop         ← integration branch
-        └── feature/<desc>  /  fix/<desc>  /  docs/<desc>
-```
-
-All commits follow [Conventional Commits](https://www.conventionalcommits.org/) :  (`feat:`, `fix:`, `docs:`, `build:`, `ci:`).
-
----
-
-## 3. Dataset
-
-**Source**: Downloaded directly from [Google Drive — ClusterLLM dataset, originally from EMNLP 2023](https://drive.google.com/file/d/1TBq3vkfm3OZLi90GVH-PVNKi3fk1Vba7/view) — unzip into `./dataset/`
-
-**Format** (one JSON object per line):
-```json
-{"task": "massive_intent", "input": "set an alarm for 7am", "label": "alarm set"}
-```
-
-The download bundle contains 14 datasets. The 9 extras (`banking77`, `clinc`, `clinc_domain`, `few_event`, `few_nerd_nat`, `few_rel_nat`, `mtop_domain`, `reddit`, `stackexchange`) could be removed — only the 5 used in the paper are kept in `./dataset/`.
-
-### Dataset sizes (small split)
-
-| Dataset | Samples | Classes |
-|---------|---------|---------|
-| `massive_scenario` | 2,974 | 18 |
-| `massive_intent` | 2,974 | 59 |
-| `go_emotion` | 5,940 | 27 |
-| `arxiv_fine` | 3,674 | 93 |
-| `mtop_intent` | 4,386 | 102 |
-
-### Seed label selection (Step 0)
-
-`select_part_labels.py` samples `floor(0.2 × num_classes)` labels per dataset at random to use as the LLM's starting point.
-
-| Dataset | Classes | Seed labels given |
-|---------|---------|-------------------|
-| `massive_scenario` | 18 | 3 |
-| `massive_intent` | 59 | 11 |
-| `go_emotion` | 27 | 5 |
-| `mtop_intent` | 102 | 20 |
-| `arxiv_fine` | 93 | 18 |
-
-Output: `./runs/chosen_labels.json`
-
----
-
-## 4. Code Changes
-
-The original code was written to run against OpenAI directly with a paid key. Adapting it to free models via OpenRouter exposed several bugs and missing pieces. This section documents what was broken (fixes) and what was added on top (improvements).
-
----
-
-### Fixes
-
-These are things that were broken in the original and prevented the pipeline from running correctly.
-
-#### Fix 1 — `ini_client()` call signature
-
-**File**: `text_clustering/pipeline/classification.py`  
-**Issue**: `main()` called `ini_client(args.api_key)` but `ini_client()` took no arguments → `TypeError` on every run.
-
-```python
-# Before
-client = ini_client(args.api_key)
-
-# After
-client = ini_client()  # API key comes from .env
-```
-
-#### Fix 2 — `response_format` not universally supported
-
-**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
-**Issue**: The original code always sent `response_format={"type":"json_object"}`. Many free models return HTTP 400 or an empty body when this is set.  
-**Fix**: Made it opt-in via `LLM_FORCE_JSON_MODE` env var (default `false`).
-
-```python
-_FORCE_JSON_MODE = os.getenv("LLM_FORCE_JSON_MODE", "false").lower() == "true"
-
-if _FORCE_JSON_MODE:
-    kwargs["response_format"] = {"type": "json_object"}
-```
-
-#### Fix 3 — Markdown fence stripping
-
-**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
-**Issue**: Free models often wrap JSON in markdown code fences (` ```json ... ``` `). The original `eval()` call fails on these, silently dropping labels.  
-**Fix**: Added `_strip_fenced_json()` applied after every API call.
-
-```python
-def _strip_fenced_json(text: str) -> str:
-    text = text.strip()
-    match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text
-```
-
-#### Fix 4 — No retry on rate limits
-
-**File**: `text_clustering/llm.py`  
-**Issue**: No error handling around API calls. A single 429 silently returned `None`, losing an entire chunk of labels with no indication.  
-**Fix**: 5-attempt retry with linear backoff (20s, 40s, 60s, 80s).
-
-```python
-for attempt in range(5):
-    try:
-        completion = client.chat.completions.create(**kwargs)
-        ...
-        return response_origin
-    except Exception as e:
-        if "429" in str(e) and attempt < 4:
-            wait = 20 * (attempt + 1)
-            print(f"  [rate limit] attempt {attempt+1}/5, waiting {wait}s...")
-            time.sleep(wait)
-        else:
-            return None
-```
-
-#### Fix 5 — Hardcoded model name
-
-**File**: `text_clustering/config.py`  
-**Issue**: `"gpt-3.5-turbo-0125"` was hardcoded in every script, making model switching require code edits.  
-**Fix**: Read from `LLM_MODEL` env var.
-
-```python
-MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
-```
-
-#### Fix 6 — Missing `.env` loading
-
-**File**: `text_clustering/client.py`  
-**Issue**: `load_dotenv()` was never called, so the `.env` file was silently ignored and all env vars fell back to their defaults.  
-**Fix**: `load_dotenv()` called at import time in `client.py`.
-
-#### Fix 7 — `LLM_REQUEST_DELAY` not consumed
-
-**File**: `text_clustering/llm.py`  
-**Issue**: `.env` defines `LLM_REQUEST_DELAY=4` but no script read it. Without a delay, requests fire back-to-back and immediately hit the 20 req/min ceiling.  
-**Fix**: Sleep after each successful API call.
-
-```python
-_REQUEST_DELAY = float(os.getenv("LLM_REQUEST_DELAY", "0"))
-
-# after a successful completion:
-if _REQUEST_DELAY > 0:
-    time.sleep(_REQUEST_DELAY)
-```
-
-With `LLM_REQUEST_DELAY=4` the pipeline stays at ~15 req/min, safely under the OpenRouter limit.
-
----
-
-### Improvements
-
-These are additions that go beyond the original scope — the pipeline worked without them, but they make it more practical for long or repeated runs.
-
-#### Improvement 1 — Package restructuring
-
-The original code was 4 flat scripts with duplicated helpers (`ini_client`, `chat`, prompt builders) copy-pasted across files. All shared logic was moved into a proper `text_clustering/` package:
-
-- `client.py` — API client factory
-- `config.py` — single source of truth for all env vars
-- `llm.py` — `chat()` with retry, `_strip_fenced_json()`
-- `data.py` — dataset loading
-- `prompts.py` — prompt construction
-- `pipeline/` — the 4 pipeline steps as importable modules with console-script entry points
-
-#### Improvement 2 — Timestamped run directories
-
-The original wrote all outputs to a flat `generated_labels/` folder with fixed filenames, so re-running a dataset overwrote previous results.
-
-Each Step 1 run now creates an isolated folder: `runs/<dataset>_<split>_<YYYYMMDD_HHMMSS>/`. All subsequent steps read from and write to that folder. Previous runs are never touched.
-
-#### Improvement 3 — Checkpoint / resume (Step 2)
-
-Step 2 makes one API call per text (~3,000 per dataset, ~3h20). The original had no way to recover from an interruption — a crash meant starting from scratch.
-
-Progress is now saved to `checkpoint.json` every 200 samples. Re-running the same command detects the checkpoint and resumes from where it stopped. The checkpoint is deleted automatically on successful completion.
-
-#### Improvement 4 — `results.json`
-
-The original `evaluate.py` printed metrics to stdout only. Results are now also written to `results.json` in the run directory, including ACC, NMI, ARI, sample count, cluster counts, model name, and timestamp.
-
-#### Improvement 5 — Logging
-
-All `print()` calls in the pipeline were replaced with Python's standard `logging` module. A `setup_logging(log_path)` function configures two handlers at startup: one to stdout (INFO level) and one to a `run.log` file inside the run directory (DEBUG level). The log format includes a timestamp, level, and module name:
-
-```
-2026-02-20 14:32:01 | INFO     | label_generation | Run dir: ./runs/...
-```
-
-Every pipeline step writes its full trace to `run.log` in its run directory. Step 0 writes to `runs/seed_labels.log`. This means a run can always be reconstructed after the fact — which model was used, when each step ran, any rate limit retries, and progress checkpoints.
-
-
-
----
 
 ## 5. API & Model Investigation
 
+| Problem | Original Paper | SEAL-Clust Solution |          ▼
+
+### OpenRouter Rate Limits
+
+|---------|---------------|---------------------|    classifications.json    { label: [text, ...] }
+
+| Concept | Detail |
+
+|---------|--------|| **High LLM cost** | One API call per document (~3,000 calls) | Only prototype docs go to the LLM (~100–300 calls) |          │
+
+| **Free tier cap** | `is_free_tier: true` → 50 req/day. ≥ $10 purchase → 1,000/day |
+
+| **RPM** | 20 req/min for free models regardless of tier || **Not fully unsupervised** | Requires 20% seed labels from ground truth | Microclustering needs zero labels |          ▼
+
+| **Venice upstream** | Free models (Llama 70B, Mistral 24B, Gemma 27B) all route through Venice. When Venice is under load, all fail with 429 simultaneously. |
+
+| **Undefined k** | LLM implicitly decides k during label merge | Systematic K\* via BIC / silhouette / Calinski-Harabasz |  [Step 3]  evaluation.py  --run_dir <above>
+
+### Why We Don't Use OpenAI JSON Mode
+
+`response_format={"type":"json_object"}` is not supported by most free models. Some return HTTP 400, some return empty body, reasoning models spend all tokens on chain-of-thought. Our fix: leave JSON mode off, strip fences from responses.| **Scalability** | Linear in N (all samples → LLM) | Sub-linear: embed once, cluster locally, LLM on M << N prototypes |          │  Hungarian alignment → ACC / NMI / ARI
+
+
+
+### Why Reasoning Models Are Excluded          ▼
+
+Models like DeepSeek R1, Solar Pro 3, GLM 4.5 Air use internal chain-of-thought. At `max_tokens=512` they spend the entire budget on CoT and return `content: ""`. They are slow, token-heavy, and incompatible with ~3,000 calls per dataset.
+
+### The 9-Stage Architecture (SEAL-Clust v2)    results.json
+
+### Model Selection Criteria
+
+1. Instruct model (not reasoning/thinking)```
+
+2. ≥ 24B parameters — needed for reliable label proposal and multi-class classification
+
+3. ≥ 32K context — classification prompt lists up to 60+ candidate labels```
+
+4. Responds without a system prompt being required
+
+5. Returns JSON without wrapping it in extra explanation┌─────────────────────────────────────────────────────────────────┐### Models used in the paper
+
+6. **Merge capability**: must consolidate ~150 proposed labels down to ~18 in a single call
+
+│  Stage 1: Document Embedding    all-MiniLM-L6-v2 → 384D        │
+
+### Primary Model: `google/gemini-2.0-flash-001`
+
+Selected after Run 02 merge investigation. Probe: 6/6 RECOMMENDED. Merge test: 167 labels → **28 in 1.9 seconds** — single call, paper-aligned.│  Stage 2: Dimensionality Reduction    PCA 384D → 50D           │| Stage | Model |
+
+
+
+**Cost estimate (full 5-dataset baseline)**: ~$0.92 (with 2× safety margin: ~$1.83).│  Stage 3: Overclustering    K-Medoids K₀=300 → 300 clusters    │|-------|-------|
+
+
+
+---│  Stage 4: Representative Selection    Extract 300 medoid docs   │| Label generation | `gpt-3.5-turbo-0125` |
+
+
+
+## 6. Model Probe Results│  Stage 5: Label Discovery    LLM reads reps → candidate labels  │| Label merging | `gpt-3.5-turbo-0125` |
+
+
+
+All models tested with `probe_models.py` (6 tests: reachability, label gen, merge, classification, consistency, token efficiency).│  Stage 6: K* Estimation    Silhouette-elbow / manual → K*       │| Classification | `gpt-3.5-turbo-0125` |
+
+
+
+| Model | Score | Verdict | Notes |│  Stage 7: Label Consolidation    LLM merges → exactly K* labels │| Ablation upper bound | `gpt-4` |
+
+|-------|-------|---------|-------|
+
+| `google/gemini-2.0-flash-001` | **6/6** | ✅ **PRIMARY** | Merge: 167 → 28 labels in 1.9s |│  Stage 8: Classification    LLM classifies 300 reps → K* labels │
+
+| `arcee-ai/trinity-large-preview:free` | **6/6** | ⚠️ Merge fails at scale | Stalls at 144 labels |
+
+| `openai/gpt-4o-mini` | 6/6 | ⚠️ USABLE | Merge: 167 → 105 (poor consolidation) |│  Stage 9: Label Propagation    Each doc inherits medoid's label  │### Datasets (5 main, small split)
+
+| `meta-llama/llama-3.3-70b-instruct:free` | — | ⏳ Pending | Venice upstream 429 |
+
+| `mistralai/mistral-small-3.1-24b-instruct:free` | — | ⏳ Pending | Venice upstream 429 |└─────────────────────────────────────────────────────────────────┘
+
+| `google/gemma-3-27b-it:free` | — | ⏳ Pending | Venice upstream 429 |
+
+| `nousresearch/hermes-3-llama-3.1-405b:free` | — | ⏳ Pending | Venice upstream 429 |```| Dataset | Domain | Classes |
+
+
+
+### Models Excluded|---------|--------|---------|
+
+
+
+| Model | Reason || Symbol | Meaning | Typical Value || `massive_intent` | Voice assistant intents | 59 |
+
+|-------|--------|
+
+| `upstage/solar-pro-3:free` | Reasoning model (`reasoning_details` field) ||--------|---------|:-------------:|| `massive_scenario` | Voice assistant scenarios | 18 |
+
+| `z-ai/glm-4.5-air:free` | Reasoning model |
+
+| `arcee-ai/trinity-mini:free` | Reasoning model (`content: ""`) || **K₀** | Overclustering size (micro-clusters) | 300 || `go_emotion` | Emotion detection | 27 |
+
+| `nvidia/nemotron-3-nano-30b-a3b:free` | Reasoning model |
+
+| `deepseek/deepseek-r1-0528:free` | R1 architecture — reasoning by design || **K\*** | Final number of categories | 5–50 (auto) or manual || `mtop_intent` | Multi-domain intent | 102 |
+
+| `google/gemma-3-12b-it:free` | 12B too small, rejects system prompts |
+
+| `qwen/qwen3-235b-a22b:free` | 404 — no endpoints on OpenRouter || `arxiv_fine` | Academic topics | 93 |
+
+| `openai/gpt-oss-120b:free` / `20b:free` | Data policy restriction |
+
+K₀ ≠ K\*. The pipeline over-clusters to get good representatives, then uses the LLM to discover the right number of meaningful categories (K\*).
+
+---
+
+---
+
+## 7. Pipeline Execution Log
+
+---
+
+### Run 01 — `massive_scenario` · `trinity-large-preview:free` · 2026-02-20
+
+## 2. Setup
+
+First end-to-end validation run. Pipeline executed with no code changes relative to v1.2.0.
+
+## 3. Code Fixes Applied to the Original Repository
+
+- **Step 0**: ✅ Seed labels selected (3 of 18)
+
+- **Step 1**: ✅ 190 proposed labels. Merge **silently failed** — `LLM_MAX_TOKENS=512` too small for 190-label merge response. Parser silently fell back to unmerged list.### Toolchain
+
+- **Step 2**: ✅ 2,974 texts classified (4h29). 168 distinct predicted labels.
+
+- **Step 3**: ✅ ACC=40.69, NMI=66.64, ARI=33.06The original code was written for OpenAI directly with a paid key. Adapting it to free models via OpenRouter exposed several bugs.
+
+
+
+**Root cause**: Label merge truncated at 512 tokens → 168 predicted clusters instead of ~18. Each true class was split across 3–61 predicted labels (taxonomy fragmentation). The metric gap (ACC −31 vs paper) is an artifact of merge failure, not classification quality.| Tool | Version | Purpose |
+
+
+
+### Run 02 — Merge Investigation & Model Switch · 2026-02-21### Fix 1 — `ini_client()` call signature|------|---------|---------|
+
+
+
+After fixing the token limit, three Step 1 re-attempts with `trinity-large-preview:free`:`main()` called `ini_client(args.api_key)` but `ini_client()` took no arguments → `TypeError` on every run. Fixed: `ini_client()` reads API key from `.env`.| Python | 3.12.6 (pyenv) | Runtime |
+
+- Parser crash on flat JSON array → fixed with `_parse_merge_response()`
+
+- Model still couldn't semantically consolidate at scale (154 → 149 → 144, stalled)| uv | latest | Fast, reproducible package installs |
+
+- Batched multi-pass merge attempted → only 10 labels removed in 3 passes
+
+- Map-to-canonical approach tested → **rejected as data leakage** (passes all 18 true labels to merge step, paper withholds 15)### Fix 2 — `response_format` not universally supported| Ruff | 0.15.1 | Linter |
+
+
+
+**Resolution**: Switched to `google/gemini-2.0-flash-001`. Merge test: 167 → 28 labels in 1.9s (paper-aligned).The original code always sent `response_format={"type":"json_object"}`. Many models return HTTP 400 or empty body. Fixed: opt-in via `LLM_FORCE_JSON_MODE` env var (default `false`).| Commitizen | 4.13.7 | Conventional commit enforcement |
+
+
+
+### Run 02 — `massive_scenario` · `gemini-2.0-flash-001` · `target_k=18` · 2026-02-21
+
+
+
+First full end-to-end run with Gemini.### Fix 3 — Markdown fence stripping### Key files added
+
+
+
+- **Step 1**: ✅ 352 proposed → 18 merged (target_k=18). 10 good semantic matches, 4 overlapping labels, 4 spurious labels. Missing: `weather` cluster.Free models often wrap JSON in markdown code fences (`` ```json ... ``` ``). The original `eval()` call fails on these. Fixed: `_strip_fenced_json()` applied after every API call.
+
+- **Step 2**: ✅ 2,974 classified (2h09). 0 errors.
+
+- **Step 3**: ✅ **ACC=60.46, NMI=63.90, ARI=53.87**| File | Purpose |
+
+
+
+ARI within 3 points of paper (53.87 vs 56.86) — cluster structure nearly correct. The ACC gap (−11.29) is driven by 4 spurious labels from `target_k` slot-filling.### Fix 4 — No retry on rate limits|------|---------|
+
+
+
+### Run 03 — `massive_scenario` · `gemini-2.0-flash-001` · no `target_k` · 2026-02-21No error handling around API calls — a single 429 silently returned `None`. Fixed: 5-attempt retry with linear backoff (20s, 40s, 60s, 80s).| `pyproject.toml` | Project metadata and dependencies |
+
+
+
+Without `target_k`, Gemini performed light deduplication only: 343 → 311 labels. Step 2 not run — 311-cluster classification would be scientifically useless.| `uv.lock` | Pinned lockfile for reproducibility |
+
+
+
+**Conclusion**: `target_k` must remain the default. It is a necessary semantic anchor when the proposed label count is in the hundreds.### Fix 5 — Hardcoded model name| `requirements.txt` | Pinned fallback for pip users |
+
+
+
+---`"gpt-3.5-turbo-0125"` was hardcoded everywhere. Fixed: read from `LLM_MODEL` env var.| `.env.example` | Documents every env variable (no secrets) |
+
+
+
+### KM-01 — `massive_scenario` · `gpt-4o-mini` · K-Medoids k=100 · 2026-03-12| `text_clustering/client.py` | Thin wrapper: loads `.env`, builds `openai.OpenAI` client for OpenRouter |
+
+
+
+Label generation on full 2,974 docs → 715 proposed. Re-merged with `target_k=18` → 19 labels. Classification on 100 medoids (181s). 23/2,974 (0.77%) unlabelled after propagation.  ### Fix 6 — Missing `.env` loading| `.cz.yaml` | Commitizen config (conventional commits) |
+
+Run dir: `massive_scenario_small_20260312_112628`
+
+`load_dotenv()` was never called — all env vars fell back to defaults. Fixed: called at import time in `client.py`.| `.github/workflows/ci.yml` | Lint CI on PRs to `main` / `develop` |
+
+**Result**: ACC=54.98, NMI=57.78, ARI=41.66 — ~10× LLM cost reduction.
+
+
+
+### KM-02 — `massive_scenario` · `gpt-4o-mini` · K-Medoids k=300 · 2026-03-12
+
+### Fix 7 — `LLM_REQUEST_DELAY` not consumed### Dependencies
+
+k=300 (9.9× compression). Label gen on 300 medoid docs → 683 proposed → 19 labels. Classification on 300 medoids (1161s). 11/2,974 (0.37%) unlabelled.  
+
+Run dir: `massive_scenario_small_20260312_120831``.env` defines `LLM_REQUEST_DELAY=4` but no script read it. Without a delay, requests hit rate limit ceilings immediately. Fixed: sleep after each API call.
+
+
+
+**Result**: ACC=55.21, NMI=57.25, ARI=39.85 — tripling k barely improved results.```
+
+
+
+### GMM-01 — `massive_scenario` · `gpt-3.5-turbo` · GMM k=100 · 2026-03-13---openai>=1.30.0        — OpenRouter-compatible client
+
+
+
+Label gen with `gpt-3.5-turbo` → 252 proposed. Re-merged with `gpt-4o-mini` → 20 labels. Classification on 100 GMM representatives (205s). 0% unlabelled.  python-dotenv>=1.0.0  — .env loading
+
+Run dir: `massive_scenario_small_20260313_095906`
+
+## 4. Improvements Addedscikit-learn>=1.4.0   — NMI, ARI metrics
+
+**Result**: ACC=53.63, NMI=58.51, ARI=40.53 — **highest NMI** among pre-clustering runs. GMM soft assignments outperform K-Medoids hard assignments on cluster purity.
+
+scipy>=1.13.0         — Hungarian algorithm (ACC)
+
+---
+
+### Package Restructuringnumpy>=1.26.0         — used in evaluate.py
+
+### SC-01 — `massive_scenario` · SEAL-Clust v1 · t-SNE 2D + Elbow k=30 · 2026-03-13
+
+The original 4 flat scripts with duplicated helpers were reorganized into a proper `text_clustering/` package: `client.py`, `config.py`, `llm.py`, `data.py`, `prompts.py`, `pipeline/`.```
+
+Full 7-step SEAL-Clust v1. t-SNE reduced to 2D (cosine metric, perplexity=30) → Elbow selected k=30 → K-Medoids on 2D → 30 medoids.  
+
+Label gen with `gpt-3.5-turbo`: 260 proposed → 231 (poor merge). Re-merged with `gpt-4o-mini`: 260 → 39 → 18 labels.  
+
+Classification on 30 medoids only (57s, ~30 LLM calls). Only 12 of 18 labels used. 0% unlabelled.  
+
+Run dir: `massive_scenario_small_20260313_113104`### Timestamped Run Directories### Branching
+
+
+
+**Result**: ACC=43.21, NMI=44.68, ARI=26.14 — **99× cost reduction**, but t-SNE 2D loses too much structure.Each run creates an isolated folder: `runs/<dataset>_<split>_<YYYYMMDD_HHMMSS>/`. Previous runs are never overwritten.
+
+
+
+### SC-02 — `massive_scenario` · SEAL-Clust v1 · t-SNE 2D + Manual k=200 · 2026-03-13```
+
+
+
+Manual k=200 (Elbow skipped). t-SNE 2D → K-Medoids on 2D → 200 medoids. `gpt-4o-mini` throughout. All 19 labels used + 1 Unsuccessful. 3/2,974 unlabelled (0.1%).  ### Checkpoint / Resume (Step 2)main       ← stable, tagged releases
+
+Run dir: `massive_scenario_small_20260313_135205`
+
+Progress saved to `checkpoint.json` every 200 samples. Re-running the same command resumes from where it stopped.  └── develop         ← integration branch
+
+**Result**: ACC=43.44, NMI=42.37, ARI=27.66 — increasing k from 30→200 did **not** improve ACC. The t-SNE 2D projection is the bottleneck.
+
+        └── feature/<desc>  /  fix/<desc>  /  docs/<desc>
+
+### SC-03 — `massive_scenario` · SEAL-Clust v2 · PCA 50D + K₀=300 + BIC K\*=7 · 2026-03-14
+
+### `results.json````
+
+**First SEAL-Clust v2 run.** Switched from t-SNE 2D to PCA 50D. K₀=300, BIC estimated K\*=7.  
+
+`gpt-4o-mini` for all LLM steps. ~310 LLM calls.  Results now written to JSON (ACC, NMI, ARI, sample count, cluster counts, model name, timestamp) — not just stdout.
+
+Run dir: `massive_scenario_small_20260314_113900`
+
+All commits follow [Conventional Commits](https://www.conventionalcommits.org/) :  (`feat:`, `fix:`, `docs:`, `build:`, `ci:`).
+
+**Result**: **ACC=56.32, NMI=55.15, ARI=38.66** — PCA 50D **recovers +13pp ACC** lost by t-SNE. Best pre-clustering ACC. However, BIC under-estimated K\* (7 vs true 18), so clusters are too broad.
+
+### Logging
+
+### SC-04 — `massive_scenario` · SEAL-Clust v2 · PCA 50D + K₀=300 + Silhouette K\*=50 · 2026-03-14
+
+All `print()` replaced with Python's `logging` module. Two handlers: stdout (INFO) and `run.log` file (DEBUG) with timestamps.---
+
+PCA 50D, K₀=300. Silhouette method selected K\*=50 (over-estimated — silhouette kept increasing up to k_max=50).  
+
+Run dir: `massive_scenario_small_20260314_120703`
+
+
+
+**Status**: ❌ Interrupted during Stage 8 (classification). No results.  ---## 3. Dataset
+
+**Observation**: Silhouette without elbow detection picks the maximum K in the search range — not usable as-is.
+
+
+
+### SC-05 — `massive_scenario` · SEAL-Clust v2 · PCA 50D + K₀=300 + Silhouette-Elbow K\*=9 · 2026-03-14
+
+## 5. API & Model Investigation**Source**: Downloaded directly from [Google Drive — ClusterLLM dataset, originally from EMNLP 2023](https://drive.google.com/file/d/1TBq3vkfm3OZLi90GVH-PVNKi3fk1Vba7/view) — unzip into `./dataset/`
+
+PCA 50D, K₀=300. Silhouette-elbow (Kneedle algorithm) estimated K\*=9 from the silhouette curve.  
+
+Run dir: `massive_scenario_small_20260314_122333`
+
+
+
+**Status**: ❌ Interrupted during Stage 8. No results.  ### OpenRouter Rate Limits**Format** (one JSON object per line):
+
+**Observation**: Silhouette-elbow gives K\*=9, which is closer to ground truth (18) than BIC (K\*=7) but still under-estimates by half.
+
+```json
+
+### SC-06 — `massive_scenario` · SEAL-Clust v2 · PCA 50D + K₀=300 + Manual K\*=18 · 2026-03-14
+
+| Concept | Detail |{"task": "massive_intent", "input": "set an alarm for 7am", "label": "alarm set"}
+
+PCA 50D, K₀=300. **Manual K\*=18** (set to ground truth). `gpt-4o-mini` for all steps. ~310 LLM calls.  
+
+Run dir: `massive_scenario_small_20260314_124216`|---------|--------|```
+
+
+
+**Result**: **ACC=53.56, NMI=59.17, ARI=44.92** — Setting K\* to the ground truth produces **the best ARI** (44.92) and **the best NMI** (59.17) among all SEAL-Clust runs. ACC slightly below SC-03 because the 18 clusters are more fine-grained and small assignment errors accumulate.| **Free tier cap** | `is_free_tier: true` → 50 req/day. ≥ $10 purchase → 1,000/day |
+
+
+
+---| **RPM** | 20 req/min for free models regardless of tier |The download bundle contains 14 datasets. The 9 extras (`banking77`, `clinc`, `clinc_domain`, `few_event`, `few_nerd_nat`, `few_rel_nat`, `mtop_domain`, `reddit`, `stackexchange`) could be removed — only the 5 used in the paper are kept in `./dataset/`.
+
+
+
+### MI-01 — `massive_intent` · SEAL-Clust v1 · t-SNE 2D + Manual k=200 · 2026-03-13| **Venice upstream** | Free models (Llama 70B, Mistral 24B, Gemma 27B) all route through Venice. When Venice is under load, all fail with 429 simultaneously. |
+
+
+
+**First experiment on a different dataset.** `massive_intent` has 59 ground-truth classes (vs 18 for `massive_scenario`) — a much harder clustering task.  ### Dataset sizes (small split)
+
+t-SNE 2D, K-Medoids k=200 (manual), `gpt-4o-mini`. 200 medoid prototypes. Labels propagated to full dataset.  
+
+Run dir: `massive_intent_small_20260313_141759`### Why We Don't Use OpenAI JSON Mode
+
+
+
+**Result**: **ACC=38.37, NMI=39.16, ARI=24.26** — significant gap vs paper (ACC 64.12). This is expected: t-SNE 2D loses structure, and 59 classes is far harder than 18. n_pred=19 (only 19 of 59 classes discovered — severe under-segmentation).`response_format={"type":"json_object"}` is not supported by most free models. Some return HTTP 400, some return empty body, reasoning models spend all tokens on chain-of-thought. Our fix: leave JSON mode off, strip fences from responses.| Dataset | Samples | Classes |
+
+
+
+### MI-02 — `massive_intent` · SEAL-Clust v1 · t-SNE 2D + Manual k=200 · 2026-03-13|---------|---------|---------|
+
+
+
+Same setup as MI-01, aborted before classification completed.  ### Why Reasoning Models Are Excluded| `massive_scenario` | 2,974 | 18 |
+
+Run dir: `massive_intent_small_20260313_144015`
+
+Models like DeepSeek R1, Solar Pro 3, GLM 4.5 Air use internal chain-of-thought. At `max_tokens=512` they spend the entire budget on CoT and return `content: ""`. They are slow, token-heavy, and incompatible with ~3,000 calls per dataset.| `massive_intent` | 2,974 | 59 |
+
+**Status**: ❌ Incomplete — no results.
+
+| `go_emotion` | 5,940 | 27 |
+
+---
+
+### Model Selection Criteria| `arxiv_fine` | 3,674 | 93 |
+
+## 8. All Experimental Results
+
+1. Instruct model (not reasoning/thinking)| `mtop_intent` | 4,386 | 102 |
+
+### Terminology
+
+2. ≥ 24B parameters — needed for reliable label proposal and multi-class classification
+
+| Symbol | Meaning |
+
+|--------|---------|3. ≥ 32K context — classification prompt lists up to 60+ candidate labels### Seed label selection (Step 0)
+
+| **K₀** | Overclustering size (micro-clusters formed before LLM) |
+
+| **K\*** | Final number of categories after LLM label consolidation |4. Responds without a system prompt being required
+
+| **ACC** | Accuracy (Hungarian-aligned) |
+
+| **NMI** | Normalized Mutual Information |5. Returns JSON without wrapping it in extra explanation`select_part_labels.py` samples `floor(0.2 × num_classes)` labels per dataset at random to use as the LLM's starting point.
+
+| **ARI** | Adjusted Rand Index |
+
+6. **Merge capability**: must consolidate ~150 proposed labels down to ~18 in a single call
+
+### `massive_scenario` · small split (2,974 docs, 18 ground-truth classes)
+
+| Dataset | Classes | Seed labels given |
+
+| Run | Pipeline | Model | Reduction | K₀ | K\* (method) | n_pred | ACC | NMI | ARI | LLM Calls | Status |
+
+|-----|----------|-------|-----------|:--:|:------------:|:------:|:---:|:---:|:---:|:---------:|--------|### Primary Model: `google/gemini-2.0-flash-001`|---------|---------|-------------------|
+
+| Paper | Original | `gpt-3.5-turbo-0125` | — | — | implicit | ~18 | **71.75** | **78.00** | **56.86** | ~3,000 | Reference |
+
+| Run 01 | Original | `trinity:free` | — | — | — | 168 | 40.69 | 66.64 | 33.06 | ~3,000 | ❌ Broken merge |Selected after Run 02 merge investigation. Probe: 6/6 RECOMMENDED. Merge test: 167 labels → **28 in 1.9 seconds** — single call, paper-aligned.| `massive_scenario` | 18 | 3 |
+
+| Run 02 | Original | `gemini-2.0-flash` | — | — | 18 | 18 | 60.46 | 63.90 | 53.87 | ~3,000 | ✅ Valid |
+
+| KM-01 | K-Medoids | `gpt-4o-mini` | — | — | 18 | 19 | 54.98 | 57.78 | 41.66 | ~300 | ✅ || `massive_intent` | 59 | 11 |
+
+| KM-02 | K-Medoids | `gpt-4o-mini` | — | — | 18 | 20 | 55.21 | 57.25 | 39.85 | ~500 | ✅ |
+
+| GMM-01 | GMM | `gpt-3.5-turbo` | — | — | 18 | 17 | 53.63 | 58.51 | 40.53 | ~300 | ✅ |**Cost estimate (full 5-dataset baseline)**: ~$0.92 (with 2× safety margin: ~$1.83).| `go_emotion` | 27 | 5 |
+
+| **SC-01** | **SEALClust v1** | `3.5-turbo`+`4o-mini` | **t-SNE 2D** | 30 | Elbow | 12 | 43.21 | 44.68 | 26.14 | **~30** | ✅ |
+
+| **SC-02** | **SEALClust v1** | `gpt-4o-mini` | **t-SNE 2D** | 200 | 18 (manual) | 20 | 43.44 | 42.37 | 27.66 | ~200 | ✅ || `mtop_intent` | 102 | 20 |
+
+| **SC-03** | **SEALClust v2** | `gpt-4o-mini` | **PCA 50D** | 300 | 7 (BIC) | 7 | **56.32** | 55.15 | 38.66 | ~310 | ✅ |
+
+| **SC-04** | **SEALClust v2** | `gpt-4o-mini` | **PCA 50D** | 300 | 50 (silhouette) | — | — | — | — | — | ❌ Interrupted |---| `arxiv_fine` | 93 | 18 |
+
+| **SC-05** | **SEALClust v2** | `gpt-4o-mini` | **PCA 50D** | 300 | 9 (sil-elbow) | — | — | — | — | — | ❌ Interrupted |
+
+| **SC-06** | **SEALClust v2** | `gpt-4o-mini` | **PCA 50D** | 300 | **18 (manual)** | 18 | 53.56 | **59.17** | **44.92** | ~310 | ✅ |
+
+
+
+### `massive_intent` · small split (2,974 docs, 59 ground-truth classes)## 6. Model Probe ResultsOutput: `./runs/chosen_labels.json`
+
+
+
+| Run | Pipeline | Model | Reduction | K₀ | K\* (method) | n_pred | ACC | NMI | ARI | LLM Calls | Status |
+
+|-----|----------|-------|-----------|:--:|:------------:|:------:|:---:|:---:|:---:|:---------:|--------|
+
+| Paper | Original | `gpt-3.5-turbo-0125` | — | — | implicit | ~59 | **64.12** | **65.44** | **48.92** | ~3,000 | Reference |All models tested with `probe_models.py` (6 tests: reachability, label gen, merge, classification, consistency, token efficiency).---
+
+| **MI-01** | **SEALClust v1** | `gpt-4o-mini` | **t-SNE 2D** | 200 | manual | 19 | 38.37 | 39.16 | 24.26 | ~200 | ✅ |
+
+
+
+---
+
+| Model | Score | Verdict | Notes |## 4. Code Changes
+
+## 9. Key Findings
+
+|-------|-------|---------|-------|
+
+### Finding 1 — t-SNE 2D Is the Accuracy Bottleneck
+
+| `google/gemini-2.0-flash-001` | **6/6** | ✅ **PRIMARY** | Merge: 167 → 28 labels in 1.9s |The original code was written to run against OpenAI directly with a paid key. Adapting it to free models via OpenRouter exposed several bugs and missing pieces. This section documents what was broken (fixes) and what was added on top (improvements).
+
+SC-01 (k=30, ACC=43.21%) ≈ SC-02 (k=200, ACC=43.44%). Going from 30→200 prototypes only improved ACC by +0.23pp. The information loss from 384D→2D projection dominates. Increasing k cannot compensate for the lost discriminative structure.
+
+| `arcee-ai/trinity-large-preview:free` | **6/6** | ⚠️ Merge fails at scale | Stalls at 144 labels |
+
+### Finding 2 — PCA 50D Recovers the Accuracy
+
+| `openai/gpt-4o-mini` | 6/6 | ⚠️ USABLE | Merge: 167 → 105 (poor consolidation) |---
+
+SC-03 (PCA 50D, ACC=56.32%) vs SC-01/SC-02 (t-SNE 2D, ACC≈43%). Switching from t-SNE 2D to PCA 50D recovered **+13pp ACC** — the single biggest improvement in the SEAL-Clust pipeline. PCA 50D is now the default reduction method.
+
+| `meta-llama/llama-3.3-70b-instruct:free` | — | ⏳ Pending | Venice upstream 429 |
+
+### Finding 3 — K\* Estimation Methods Comparison
+
+| `mistralai/mistral-small-3.1-24b-instruct:free` | — | ⏳ Pending | Venice upstream 429 |### Fixes
+
+| Method | Estimated K\* | True K | Verdict |
+
+|--------|:------------:|:------:|---------|| `google/gemma-3-27b-it:free` | — | ⏳ Pending | Venice upstream 429 |
+
+| BIC (GMM) | 7 | 18 | Under-estimates — categories overlap in embedding space |
+
+| Silhouette (raw) | 50 | 18 | Over-estimates — picks k_max, monotonically increasing || `nousresearch/hermes-3-llama-3.1-405b:free` | — | ⏳ Pending | Venice upstream 429 |These are things that were broken in the original and prevented the pipeline from running correctly.
+
+| Silhouette-elbow (Kneedle) | 9 | 18 | Better, but still under-estimates by ~50% |
+
+| Manual | 18 | 18 | ✅ Best results when ground truth is known |
+
+
+
+**Conclusion**: All automated methods struggle because some ground-truth categories overlap in the MiniLM-L6-v2 embedding space. **For best accuracy, use `--k_star` with the known number of classes.**### Models Excluded#### Fix 1 — `ini_client()` call signature
+
+
+
+### Finding 4 — Manual K\* Gives the Best Cluster Quality
+
+
+
+SC-06 (K\*=18, manual) achieved the **best NMI (59.17)** and **best ARI (44.92)** among all SEAL-Clust runs. SC-03 (K\*=7, BIC) has higher ACC (56.32 vs 53.56) because fewer clusters means fewer assignment errors, but the clusters are too coarse — lower NMI and ARI confirm this.| Model | Reason |**File**: `text_clustering/pipeline/classification.py`  
+
+
+
+### Finding 5 — GMM Achieves Highest NMI Among Pre-Clustering Modes|-------|--------|**Issue**: `main()` called `ini_client(args.api_key)` but `ini_client()` took no arguments → `TypeError` on every run.
+
+
+
+GMM-01 (NMI=58.51) outperforms both KM-01 (57.78) and KM-02 (57.25) on cluster purity. GMM's soft (probabilistic) assignments provide richer information than K-Medoids' hard assignments. GMM also achieves **0% unlabelled** documents.| `upstage/solar-pro-3:free` | Reasoning model (`reasoning_details` field) |
+
+
+
+### Finding 6 — Merge Capability Is a Hard Requirement| `z-ai/glm-4.5-air:free` | Reasoning model |```python
+
+
+
+The model must consolidate ~150 proposed labels down to ~18 in a single call. `trinity-large-preview` stalls at 144 labels. `gpt-4o-mini` merges to 105 (poor). Only `gemini-2.0-flash-001` performs paper-aligned merge (167→28 in 1.9s). No batching or multi-pass workaround succeeds.| `arcee-ai/trinity-mini:free` | Reasoning model (`content: ""`) |# Before
+
+
+
+### Finding 7 — `massive_intent` (59 Classes) Is Much Harder| `nvidia/nemotron-3-nano-30b-a3b:free` | Reasoning model |client = ini_client(args.api_key)
+
+
+
+MI-01 (ACC=38.37) vs paper (ACC=64.12) — a 26pp gap. With t-SNE 2D and only 200 prototypes, only 19 of 59 classes were discovered. The fine-grained intent taxonomy requires either more prototypes, PCA-based reduction, or a stronger embedding model.| `deepseek/deepseek-r1-0528:free` | R1 architecture — reasoning by design |
+
+
+
+### Finding 8 — The Trade-Off Curve| `google/gemma-3-12b-it:free` | 12B too small, rejects system prompts |# After
+
+
+
+| Approach | Reduction | K\* | ACC | NMI | ARI | LLM Calls | Automation || `qwen/qwen3-235b-a22b:free` | 404 — no endpoints on OpenRouter |client = ini_client()  # API key comes from .env
+
+|----------|:---------:|:---:|:---:|:---:|:---:|:---------:|:----------:|
+
+| Original paper | — | implicit | **71.75** | **78.00** | **56.86** | ~3,000 | Manual || `openai/gpt-oss-120b:free` / `20b:free` | Data policy restriction |```
+
+| Original (gemini) | — | 18 | 60.46 | 63.90 | 53.87 | ~3,000 | Manual |
+
+| K-Medoids (raw 384D) | — | 18 | 55.21 | 57.25 | 39.85 | ~500 | Manual |
+
+| GMM (raw 384D) | — | 18 | 53.63 | 58.51 | 40.53 | ~300 | Manual |
+
+| **SEALClust v2 (manual K\*)** | **PCA 50D** | **18** | 53.56 | **59.17** | **44.92** | ~310 | **Semi-auto** |---#### Fix 2 — `response_format` not universally supported
+
+| SEALClust v2 (BIC K\*) | PCA 50D | 7 | **56.32** | 55.15 | 38.66 | ~310 | **Full auto** |
+
+| SEALClust v1 (t-SNE) | t-SNE 2D | Elbow/18 | 43.21–43.44 | 42–45 | 26–28 | 30–200 | Full auto |
+
+
+
+Best accuracy-cost balance: **SEALClust v2 with PCA 50D and manual K\*=18** (ARI=44.92, NMI=59.17, 10× cost reduction).## 7. Pipeline Execution Log**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
+
+
+
+---**Issue**: The original code always sent `response_format={"type":"json_object"}`. Many free models return HTTP 400 or an empty body when this is set.  
+
+
+
+## 10. Cost Analysis### Run 01 — `massive_scenario` · `trinity-large-preview:free` · 2026-02-20**Fix**: Made it opt-in via `LLM_FORCE_JSON_MODE` env var (default `false`).
+
+
+
+### LLM API Calls Per Mode
+
+
+
+| Pipeline Step | Mode A (Original) | Mode B (KM k=100) | Mode C (GMM k=100) | Mode E (SEALClust K₀=300) |First end-to-end validation run. Pipeline executed with no code changes relative to v1.2.0.```python
+
+|--------------|:-----------------:|:-----------------:|:------------------:|:-------------------------:|
+
+| Label discovery | ~200 | ~200 | ~200 | **~10** (reps only) |_FORCE_JSON_MODE = os.getenv("LLM_FORCE_JSON_MODE", "false").lower() == "true"
+
+| Label merge | 1 | 1 | 1 | 1 |
+
+| Classification | **~2,974** | **~100** | **~100** | **~300** |- **Step 0**: ✅ Seed labels selected (3 of 18)
+
+| **Total** | **~3,175** | **~301** | **~301** | **~311** |
+
+| **Reduction** | 1× | **~10×** | **~10×** | **~10×** |- **Step 1**: ✅ 190 proposed labels. Merge **silently failed** — `LLM_MAX_TOKENS=512` too small for 190-label merge response. Parser silently fell back to unmerged list.if _FORCE_JSON_MODE:
+
+
+
+### Wall-Clock Time (`massive_scenario` · small split)- **Step 2**: ✅ 2,974 texts classified (4h29). 168 distinct predicted labels.    kwargs["response_format"] = {"type": "json_object"}
+
+
+
+| Step | Mode A | Mode B (k=100) | Mode C (k=100) | Mode E (K₀=300) |- **Step 3**: ✅ ACC=40.69, NMI=66.64, ARI=33.06```
+
+|------|:------:|:--------------:|:--------------:|:---------------:|
+
+| Embedding | ~18s | ~18s | ~18s | ~18s |
+
+| Reduction | — | — | — | ~1s (PCA) |
+
+| Clustering | — | ~10s | ~20s | ~5s |**Root cause**: Label merge truncated at 512 tokens → 168 predicted clusters instead of ~18. Each true class was split across 3–61 predicted labels (taxonomy fragmentation). The metric gap (ACC −31 vs paper) is an artifact of merge failure, not classification quality.#### Fix 3 — Markdown fence stripping
+
+| Label discovery | ~15 min | ~15 min | ~15 min | **~20s** |
+
+| Classification | **~2 hours** | **181s** | **205s** | **~8 min** |
+
+| **Total** | **~2.5 hours** | **~20 min** | **~20 min** | **~10 min** |
+
+### Run 02 — Merge Investigation & Model Switch · 2026-02-21**Files**: `text_clustering/pipeline/label_generation.py`, `classification.py`  
+
+### Gemini-2.0-flash-001 Cost Estimate (5-Dataset Baseline)
+
+**Issue**: Free models often wrap JSON in markdown code fences (` ```json ... ``` `). The original `eval()` call fails on these, silently dropping labels.  
+
+Pricing: $0.10/M input tokens · $0.40/M output tokens
+
+After fixing the token limit, three Step 1 re-attempts with `trinity-large-preview:free`:**Fix**: Added `_strip_fenced_json()` applied after every API call.
+
+| Dataset | Estimated cost |
+
+|---------|:--------------:|- Parser crash on flat JSON array → fixed with `_parse_merge_response()`
+
+| `massive_scenario` | ~$0.14 |
+
+| `massive_intent` | ~$0.11 |- Model still couldn't semantically consolidate at scale (154 → 149 → 144, stalled)```python
+
+| `go_emotion` | ~$0.29 |
+
+| `arxiv_fine` | ~$0.27 |- Batched multi-pass merge attempted → only 10 labels removed in 3 passesdef _strip_fenced_json(text: str) -> str:
+
+| `mtop_intent` | ~$0.11 |
+
+| **Total** | **~$0.92** |- Map-to-canonical approach tested → **rejected as data leakage** (passes all 18 true labels to merge step, paper withholds 15)    text = text.strip()
+
+
+
+---    match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
+
+
+
+## 11. Future Work**Resolution**: Switched to `google/gemini-2.0-flash-001`. Merge test: 167 → 28 labels in 1.9s (paper-aligned).    if match:
+
+
+
+### Completed ✅        return match.group(1).strip()
+
+
+
+- [x] Replace t-SNE 2D with PCA 50D (now the default)### Run 02 — `massive_scenario` · `gemini-2.0-flash-001` · `target_k=18` · 2026-02-21    return text
+
+- [x] Systematic K\* estimation (silhouette-elbow, Calinski-Harabasz, BIC, ensemble)
+
+- [x] Manual K\* override (`--k_star N`)```
+
+- [x] One-command full pipeline (`--full`)
+
+- [x] Test on `massive_intent` dataset (MI-01)First full end-to-end run with Gemini.
+
+
+
+### Remaining#### Fix 4 — No retry on rate limits
+
+
+
+- [ ] Run `massive_intent` with SEALClust v2 (PCA 50D) — expect significant improvement over MI-01 (t-SNE)- **Step 1**: ✅ 352 proposed → 18 merged (target_k=18). 10 good semantic matches, 4 overlapping labels, 4 spurious labels. Missing: `weather` cluster.
+
+- [ ] Run remaining 3 datasets with Gemini (`go_emotion`, `arxiv_fine`, `mtop_intent`)
+
+- [ ] Complete SC-04 and SC-05 runs to validate silhouette-based K\* estimation- **Step 2**: ✅ 2,974 classified (2h09). 0 errors.**File**: `text_clustering/llm.py`  
+
+- [ ] HDBSCAN microclustering (density-based, auto-determines k)
+
+- [ ] Multi-representative extraction (2–3 docs per cluster for richer LLM context)- **Step 3**: ✅ **ACC=60.46, NMI=63.90, ARI=53.87****Issue**: No error handling around API calls. A single 429 silently returned `None`, losing an entire chunk of labels with no indication.  
+
+- [ ] Better embedding models (`all-mpnet-base-v2`, `instructor-xl`, `e5-large`)
+
+- [ ] Cross-dataset evaluation on all 14 datasets**Fix**: 5-attempt retry with linear backoff (20s, 40s, 60s, 80s).
+
+- [ ] Re-probe Venice-blocked free models during off-peak hours
+
+ARI within 3 points of paper (53.87 vs 56.86) — cluster structure nearly correct. The ACC gap (−11.29) is driven by 4 spurious labels from `target_k` slot-filling.
+
+```python
+
+### Run 03 — `massive_scenario` · `gemini-2.0-flash-001` · no `target_k` · 2026-02-21for attempt in range(5):
+
+    try:
+
+Without `target_k`, Gemini performed light deduplication only: 343 → 311 labels. Step 2 not run — 311-cluster classification would be scientifically useless.        completion = client.chat.completions.create(**kwargs)
+
+        ...
+
+**Conclusion**: `target_k` must remain the default. It is a necessary semantic anchor when the proposed label count is in the hundreds.        return response_origin
+
+    except Exception as e:
+
+### KM-01 — `massive_scenario` · `gpt-4o-mini` · K-Medoids k=100        if "429" in str(e) and attempt < 4:
+
+            wait = 20 * (attempt + 1)
+
+Label generation on full 2,974 docs → 715 proposed. Re-merged with `target_k=18` → 19 labels. Classification on 100 medoids (181s). 23/2,974 (0.77%) unlabelled after propagation.            print(f"  [rate limit] attempt {attempt+1}/5, waiting {wait}s...")
+
+            time.sleep(wait)
+
+**Result**: ACC=54.98, NMI=57.78, ARI=41.66 — ~10× LLM cost reduction.        else:
+
+            return None
+
+### KM-02 — `massive_scenario` · `gpt-4o-mini` · K-Medoids k=300```
+
+
+
+k=300 (9.9× compression). Label gen on 300 medoid docs → 683 proposed → 19 labels. Classification on 300 medoids (1161s). 11/2,974 (0.37%) unlabelled.#### Fix 5 — Hardcoded model name
+
+
+
+**Result**: ACC=55.21, NMI=57.25, ARI=39.85 — tripling k barely improved results.**File**: `text_clustering/config.py`  
+
+**Issue**: `"gpt-3.5-turbo-0125"` was hardcoded in every script, making model switching require code edits.  
+
+### GMM-01 — `massive_scenario` · `gpt-3.5-turbo` · GMM k=100**Fix**: Read from `LLM_MODEL` env var.
+
+
+
+Label gen with `gpt-3.5-turbo` → 252 proposed. Re-merged with `gpt-4o-mini` → 20 labels. Classification on 100 GMM representatives (205s). 0% unlabelled.```python
+
+MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo-0125")
+
+**Result**: ACC=53.63, NMI=58.51, ARI=40.53 — **highest NMI** among pre-clustering runs. GMM soft assignments outperform K-Medoids hard assignments on cluster purity.```
+
+
+
+### SC-01 — `massive_scenario` · `gpt-3.5-turbo`+`gpt-4o-mini` · t-SNE 2D + Elbow k=30#### Fix 6 — Missing `.env` loading
+
+
+
+Full 7-step SEAL-Clust v1. t-SNE reduced to 2D → Elbow selected k=30 → K-Medoids on 2D → 30 medoids. Label gen → classification on 30 medoids only (57s, ~30 LLM calls). Only 12 of 18 labels used.**File**: `text_clustering/client.py`  
+
+**Issue**: `load_dotenv()` was never called, so the `.env` file was silently ignored and all env vars fell back to their defaults.  
+
+**Result**: ACC=43.21, NMI=44.68, ARI=26.14 — **99× cost reduction**, but t-SNE 2D loses too much structure.**Fix**: `load_dotenv()` called at import time in `client.py`.
+
+
+
+### SC-02 — `massive_scenario` · `gpt-4o-mini` · t-SNE 2D + Manual k=200#### Fix 7 — `LLM_REQUEST_DELAY` not consumed
+
+
+
+Manual k=200 (Elbow skipped). K-Medoids on 2D → 200 medoids. All 19 labels used.**File**: `text_clustering/llm.py`  
+
+**Issue**: `.env` defines `LLM_REQUEST_DELAY=4` but no script read it. Without a delay, requests fire back-to-back and immediately hit the 20 req/min ceiling.  
+
+**Result**: ACC=43.44, NMI=42.37, ARI=27.66 — increasing k from 30→200 did **not** improve ACC. The t-SNE 2D projection is the bottleneck.**Fix**: Sleep after each successful API call.
+
+
+
+### SC-03 — `massive_scenario` · `gpt-4o-mini` · PCA 50D + K₀=300 + BIC K\*=7```python
+
+_REQUEST_DELAY = float(os.getenv("LLM_REQUEST_DELAY", "0"))
+
+SEAL-Clust v2 with PCA 50D instead of t-SNE 2D. BIC estimated K\*=7.
+
+# after a successful completion:
+
+**Result**: ACC=56.32, NMI=55.15, ARI=38.66 — **PCA 50D recovers the accuracy** lost by t-SNE. Best pre-clustering ACC.if _REQUEST_DELAY > 0:
+
+    time.sleep(_REQUEST_DELAY)
+
+### SC-04, SC-05 — Interrupted / In-Progress```
+
+
+
+SC-04 (silhouette K\*) and SC-05 (silhouette-elbow, K\*=9) were interrupted during classification.With `LLM_REQUEST_DELAY=4` the pipeline stays at ~15 req/min, safely under the OpenRouter limit.
+
+
+
+------
+
+
+
+## 8. All Experimental Results### Improvements
+
+
+
+### TerminologyThese are additions that go beyond the original scope — the pipeline worked without them, but they make it more practical for long or repeated runs.
+
+
+
+| Symbol | Meaning |#### Improvement 1 — Package restructuring
+
+|--------|---------|
+
+| **K₀** | Overclustering size (micro-clusters formed before LLM) |The original code was 4 flat scripts with duplicated helpers (`ini_client`, `chat`, prompt builders) copy-pasted across files. All shared logic was moved into a proper `text_clustering/` package:
+
+| **K\*** | Final number of categories after LLM label consolidation |
+
+| **ACC** | Accuracy (Hungarian-aligned) |- `client.py` — API client factory
+
+| **NMI** | Normalized Mutual Information |- `config.py` — single source of truth for all env vars
+
+| **ARI** | Adjusted Rand Index |- `llm.py` — `chat()` with retry, `_strip_fenced_json()`
+
+- `data.py` — dataset loading
+
+### `massive_scenario` · small split (2,974 docs, 18 ground-truth classes)- `prompts.py` — prompt construction
+
+- `pipeline/` — the 4 pipeline steps as importable modules with console-script entry points
+
+| Run | Pipeline | Model | K₀ | K\* | n_pred | ACC | NMI | ARI | LLM Calls | Reduction | Status |
+
+|-----|----------|-------|----|-----|--------|-----|-----|-----|-----------|-----------|--------|#### Improvement 2 — Timestamped run directories
+
+| Paper | Original | `gpt-3.5-turbo-0125` | — | implicit | ~18 | **71.75** | **78.00** | **56.86** | ~3,000 | 1× | Reference |
+
+| Run 01 | Original | `trinity-large-preview:free` | — | — | 168 | 40.69 | 66.64 | 33.06 | ~3,000 | 1× | ❌ Broken merge |The original wrote all outputs to a flat `generated_labels/` folder with fixed filenames, so re-running a dataset overwrote previous results.
+
+| Run 02 | Original | `gemini-2.0-flash-001` | — | 18 | 18 | 60.46 | 63.90 | 53.87 | ~3,000 | 1× | ✅ Valid |
+
+| KM-01 | K-Medoids | `gpt-4o-mini` | — | 18 | 19 | 54.98 | 57.78 | 41.66 | ~300 | **10×** | ✅ |Each Step 1 run now creates an isolated folder: `runs/<dataset>_<split>_<YYYYMMDD_HHMMSS>/`. All subsequent steps read from and write to that folder. Previous runs are never touched.
+
+| KM-02 | K-Medoids | `gpt-4o-mini` | — | 18 | 20 | 55.21 | 57.25 | 39.85 | ~500 | 6× | ✅ |
+
+| GMM-01 | GMM | `gpt-3.5-turbo` | — | 18 | 17 | 53.63 | **58.51** | 40.53 | ~300 | **30×** | ✅ |#### Improvement 3 — Checkpoint / resume (Step 2)
+
+| SC-01 | SEALClust v1 | `gpt-3.5-turbo`+`4o-mini` | 30 | Elbow | 12 | 43.21 | 44.68 | 26.14 | **~30** | **99×** | ✅ (t-SNE 2D) |
+
+| SC-02 | SEALClust v1 | `gpt-4o-mini` | 200 | 18 | 20 | 43.44 | 42.37 | 27.66 | ~200 | 15× | ✅ (t-SNE 2D) |Step 2 makes one API call per text (~3,000 per dataset, ~3h20). The original had no way to recover from an interruption — a crash meant starting from scratch.
+
+| SC-03 | SEALClust v2 | `gpt-4o-mini` | 300 | 7 (BIC) | 7 | **56.32** | 55.15 | 38.66 | ~310 | **10×** | ✅ (PCA 50D) |
+
+Progress is now saved to `checkpoint.json` every 200 samples. Re-running the same command detects the checkpoint and resumes from where it stopped. The checkpoint is deleted automatically on successful completion.
+
+---
+
+#### Improvement 4 — `results.json`
+
+## 9. Key Findings
+
+The original `evaluate.py` printed metrics to stdout only. Results are now also written to `results.json` in the run directory, including ACC, NMI, ARI, sample count, cluster counts, model name, and timestamp.
+
+### Finding 1 — t-SNE 2D Is the Accuracy Bottleneck
+
+#### Improvement 5 — Logging
+
+SC-01 (k=30, ACC=43.21%) ≈ SC-02 (k=200, ACC=43.44%). Going from 30→200 prototypes only improved ACC by +0.23pp. The information loss from 384D→2D projection dominates. Increasing k cannot compensate for the lost discriminative structure.
+
+All `print()` calls in the pipeline were replaced with Python's standard `logging` module. A `setup_logging(log_path)` function configures two handlers at startup: one to stdout (INFO level) and one to a `run.log` file inside the run directory (DEBUG level). The log format includes a timestamp, level, and module name:
+
+### Finding 2 — PCA 50D Recovers the Accuracy
+
+```
+
+SC-03 (PCA 50D, ACC=56.32%) vs SC-01/SC-02 (t-SNE 2D, ACC≈43%). Switching from t-SNE 2D to PCA 50D recovered **+13pp ACC** — the single biggest improvement in the SEAL-Clust pipeline. PCA 50D is now the default reduction method.2026-02-20 14:32:01 | INFO     | label_generation | Run dir: ./runs/...
+
+```
+
+### Finding 3 — BIC Under-Estimates K\*
+
+Every pipeline step writes its full trace to `run.log` in its run directory. Step 0 writes to `runs/seed_labels.log`. This means a run can always be reconstructed after the fact — which model was used, when each step ran, any rate limit retries, and progress checkpoints.
+
+On `massive_scenario` (ground truth K=18), BIC estimated K\*=7. The under-estimation happens because some true categories overlap in the MiniLM-L6-v2 embedding space. Silhouette-elbow performs similarly (K\*≈7-9). **For best accuracy, use manual `--k_star` with the known number of classes.**
+
+
+
+### Finding 4 — GMM Achieves Highest NMI
+
+---
+
+GMM-01 (NMI=58.51) outperforms both KM-01 (57.78) and KM-02 (57.25) on cluster purity. GMM's soft (probabilistic) assignments provide richer information than K-Medoids' hard assignments. GMM also achieves **0% unlabelled** documents.
+
+## 5. API & Model Investigation
+
+### Finding 5 — Merge Capability Is a Hard Requirement
+
 ### OpenRouter rate limits
+
+The model must consolidate ~150 proposed labels down to ~18 in a single call. `trinity-large-preview` stalls at 144 labels. `gpt-4o-mini` merges to 105 (poor). Only `gemini-2.0-flash-001` performs paper-aligned merge (167→28 in 1.9s). No batching or multi-pass workaround succeeds.
 
 OpenRouter has two distinct concepts:
 
+### Finding 6 — The Trade-Off Curve
+
 | Concept | Detail |
-|---------|--------|
-| **Account balance** | Must be non-negative to use free models (even $0/token ones) |
-| **Key limit** | Per-key spending cap. If set to `0`, blocks all requests including free ones |
-| **Free tier cap** | `is_free_tier: true` → 50 req/day. Purchasing ≥ $10 raises it to 1,000/day |
-| **RPM** | 20 req/min for free models regardless of tier |
+
+| Approach | Dim Reduction | ACC | LLM Cost | Automation ||---------|--------|
+
+|----------|:------------:|:---:|:---------:|:----------:|| **Account balance** | Must be non-negative to use free models (even $0/token ones) |
+
+| Original paper (per-doc) | none | **72%** | ~3,000 calls | Manual k || **Key limit** | Per-key spending cap. If set to `0`, blocks all requests including free ones |
+
+| K-Medoids (raw 384D) | none | 55% | ~300 | Manual k || **Free tier cap** | `is_free_tier: true` → 50 req/day. Purchasing ≥ $10 raises it to 1,000/day |
+
+| SEALClust v2 (PCA 50D) | PCA 50D | **56%** | ~310 | **Auto k** || **RPM** | 20 req/min for free models regardless of tier |
+
+| SEALClust v1 (t-SNE 2D) | t-SNE 2D | 43% | ~30–200 | Auto k |
 
 After adding €10 of credits the key changed to `is_free_tier: false`, `limit: null` — no daily cap, governed only by credit balance.
 
+Best accuracy-cost balance: **SEALClust v2 with PCA 50D** (56% ACC, 10× cost reduction, full automation).
+
 **Important**: The popular free models (Llama 70B, Mistral 24B, Gemma 27B) are all routed through a single upstream provider called **Venice**. When Venice is under load, all of these fail simultaneously with a 429 even if your account has plenty of credits. This is an infrastructure issue on their side, not an account issue.
+
+---
 
 ### Why we don't use OpenAI JSON mode
 
+## 10. Cost Analysis
+
 `response_format={"type": "json_object"}` — what the original code uses — is not supported by most free models. The options are:
 
+### LLM API Calls Per Mode
+
 - Some return HTTP 400 (Google AI Studio, older models)
-- Some return an empty body (Solar Pro 3, Step Flash)
-- Reasoning models spend all `max_tokens` on internal chain-of-thought and return `content: ""`
 
-Our fix: leave JSON mode off by default and strip fences from responses instead. Works reliably across all tested models.
+| Pipeline Step | Mode A (Original) | Mode B (KM k=100) | Mode C (GMM k=100) | Mode E (SEALClust K₀=300) |- Some return an empty body (Solar Pro 3, Step Flash)
 
-### Why reasoning models are excluded
+|--------------|:-----------------:|:-----------------:|:------------------:|:-------------------------:|- Reasoning models spend all `max_tokens` on internal chain-of-thought and return `content: ""`
+
+| Label discovery | ~200 | ~200 | ~200 | **~10** (reps only) |
+
+| Label merge | 1 | 1 | 1 | 1 |Our fix: leave JSON mode off by default and strip fences from responses instead. Works reliably across all tested models.
+
+| Classification | **~2,974** | **~100** | **~100** | **~300** |
+
+| **Total** | **~3,175** | **~301** | **~301** | **~311** |### Why reasoning models are excluded
+
+| **Reduction** | 1× | **~10×** | **~10×** | **~10×** |
 
 Models like DeepSeek R1, Solar Pro 3, GLM 4.5 Air, and Qwen3-thinking variants use an internal chain-of-thought before producing a final answer. On OpenRouter, this CoT appears in `message.reasoning` while the actual answer goes in `message.content`. The problem:
 
+### Wall-Clock Time (`massive_scenario` · small split)
+
 - At `max_tokens=512` (pipeline default), they spend the entire budget on CoT and return `content: ""`
-- Even with a larger budget, they are slow and token-heavy — incompatible with ~3,000 calls per dataset
 
-### Model selection criteria
+| Step | Mode A | Mode B (k=100) | Mode C (k=100) | Mode E (K₀=300) |- Even with a larger budget, they are slow and token-heavy — incompatible with ~3,000 calls per dataset
 
-1. Instruct model (not reasoning/thinking)
-2. ≥ 24B parameters — needed for reliable label proposal and 59-class classification
-3. ≥ 32K context — classification prompt lists up to 60 candidate labels
-4. Responds without a system prompt being required
+|------|:------:|:--------------:|:--------------:|:---------------:|
+
+| Embedding | ~18s | ~18s | ~18s | ~18s |### Model selection criteria
+
+| Reduction | — | — | — | ~1s (PCA) |
+
+| Clustering | — | ~10s | ~20s | ~5s |1. Instruct model (not reasoning/thinking)
+
+| Label discovery | ~15 min | ~15 min | ~15 min | **~20s** |2. ≥ 24B parameters — needed for reliable label proposal and 59-class classification
+
+| Classification | **~2 hours** | **181s** | **205s** | **~8 min** |3. ≥ 32K context — classification prompt lists up to 60 candidate labels
+
+| **Total** | **~2.5 hours** | **~20 min** | **~20 min** | **~10 min** |4. Responds without a system prompt being required
+
 5. Returns JSON without wrapping it in extra explanation
+
+### Gemini-2.0-flash-001 Cost Estimate (5-Dataset Baseline)
 
 ### Merge capability requirement
 
-An additional hard requirement emerged during Run 02 (see §7): the model must be able to
-consolidate ~150 proposed labels down to ~18 in a **single call**. This is what GPT-3.5-turbo
-does in the paper. It cannot be compensated for with batching or multi-pass strategies — those
-approaches either stall (trinity-large-preview) or produce data leakage (map-to-canonical). See
-§7 — Run 02 for the full investigation.
+Pricing: $0.10/M input tokens · $0.40/M output tokens
 
-This requirement disqualifies `arcee-ai/trinity-large-preview:free` as the primary model,
-despite it passing all 6 probe tests.
+An additional hard requirement emerged during Run 02 (see §7): the model must be able to
+
+| Dataset | Estimated cost |consolidate ~150 proposed labels down to ~18 in a **single call**. This is what GPT-3.5-turbo
+
+|---------|:--------------:|does in the paper. It cannot be compensated for with batching or multi-pass strategies — those
+
+| `massive_scenario` | ~$0.14 |approaches either stall (trinity-large-preview) or produce data leakage (map-to-canonical). See
+
+| `massive_intent` | ~$0.11 |§7 — Run 02 for the full investigation.
+
+| `go_emotion` | ~$0.29 |
+
+| `arxiv_fine` | ~$0.27 |This requirement disqualifies `arcee-ai/trinity-large-preview:free` as the primary model,
+
+| `mtop_intent` | ~$0.11 |despite it passing all 6 probe tests.
+
+| **Total** | **~$0.92** |
 
 ### Primary model: `google/gemini-2.0-flash-001`
 
-Selected after the Run 02 merge investigation. Probe: 6/6 RECOMMENDED (2026-02-21). Merge test:
-167 labels → **28 in 1.9 seconds** — single call, paper-aligned.
+---
 
-**Cost estimate — full 5-dataset baseline**  
+Selected after the Run 02 merge investigation. Probe: 6/6 RECOMMENDED (2026-02-21). Merge test:
+
+## 11. Future Work167 labels → **28 in 1.9 seconds** — single call, paper-aligned.
+
+
+
+### Completed ✅**Cost estimate — full 5-dataset baseline**  
+
 Pricing: $0.10/M input tokens · $0.40/M output tokens
 
-| Dataset | Estimated cost |
-|---------|---------------|
-| `massive_scenario` | ~$0.14 |
+- [x] Replace t-SNE 2D with PCA 50D (now the default)
+
+- [x] Systematic K\* estimation (silhouette-elbow, Calinski-Harabasz, BIC, ensemble)| Dataset | Estimated cost |
+
+- [x] Manual K\* override (`--k_star N`)|---------|---------------|
+
+- [x] One-command full pipeline (`--full`)| `massive_scenario` | ~$0.14 |
+
 | `massive_intent` | ~$0.11 |
-| `go_emotion` | ~$0.29 |
+
+### Remaining| `go_emotion` | ~$0.29 |
+
 | `arxiv_fine` | ~$0.27 |
-| `mtop_intent` | ~$0.11 |
-| **Total (5 datasets)** | **~$0.92** |
 
-With 2× safety margin for retries / rate limit backoff: **~$1.83**. $10 budget → **~$8.17 remaining** after full baseline.
+- [ ] Run remaining 4 datasets with Gemini (`massive_intent`, `go_emotion`, `arxiv_fine`, `mtop_intent`)| `mtop_intent` | ~$0.11 |
 
-**Note on availability**: OpenRouter lists `gemini-2.0-flash-001` as going away March 31, 2026.
+- [ ] HDBSCAN microclustering (density-based, auto-determines k)| **Total (5 datasets)** | **~$0.92** |
+
+- [ ] Multi-representative extraction (2–3 docs per cluster for richer LLM context)
+
+- [ ] Better embedding models (`all-mpnet-base-v2`, `instructor-xl`, `e5-large`)With 2× safety margin for retries / rate limit backoff: **~$1.83**. $10 budget → **~$8.17 remaining** after full baseline.
+
+- [ ] Cross-dataset evaluation on all 14 datasets
+
+- [ ] Re-probe Venice-blocked free models during off-peak hours**Note on availability**: OpenRouter lists `gemini-2.0-flash-001` as going away March 31, 2026.
+
 If the model is retired before the full baseline is complete, re-run `probe_models.py` on the
 successor (`google/gemini-2.0-flash-lite` or `google/gemini-2.5-flash-preview`) and update
 `LLM_MODEL` in `.env`.
