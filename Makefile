@@ -23,10 +23,11 @@ help:
 	@echo "  release                            bump version, merge develop->main, push tags"
 	@echo ""
 	@echo "  ── Original pipeline ──"
-	@echo "  run-step0                          seed labels (run once)"
-	@echo "  run-step1 data=<dataset>           label generation — prints the run directory"
-	@echo "  run-step2 data=<d> run=<run_dir>   classification (background, resumes on restart)"
-	@echo "  run-step3 data=<d> run=<run_dir>   evaluation → results.json"
+	@echo "  run-step0                              seed labels (run once)"
+	@echo "  run-step1 data=<dataset>               label generation — prints the run directory"
+	@echo "  run-step2 data=<d> run=<run_dir>       classification (background, resumes on restart)"
+	@echo "            classify_batch=10             batched mode: 10× fewer LLM calls"
+	@echo "  run-step3 data=<d> run=<run_dir>       evaluation → results.json"
 	@echo ""
 	@echo "  ── K-Medoids accelerated pipeline ──"
 	@echo "  run-kmedoids data=<d> [k=100]      pre-cluster → medoid_documents.jsonl"
@@ -159,6 +160,7 @@ endif
 
 # usage: make run-step2 data=massive_scenario run=./runs/massive_scenario_small_20260220_143012
 # Runs in the background; resumes automatically if a checkpoint.json exists in run_dir.
+classify_batch ?= 1
 run-step2:
 ifndef data
 	$(error data is required)
@@ -167,7 +169,7 @@ ifndef run
 	$(error run is required, e.g. run=./runs/massive_scenario_small_20260220_143012)
 endif
 	mkdir -p logs
-	nohup $(BIN)tc-classify --data $(data) --run_dir $(run) \
+	nohup $(BIN)tc-classify --data $(data) --run_dir $(run) --batch_size $(classify_batch) \
 		>> logs/$(data)_classification.log 2>&1 &
 	@echo "running in background — tail -f logs/$(data)_classification.log"
 	@echo "to resume after interruption, re-run the same command"

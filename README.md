@@ -243,11 +243,14 @@ conda run -n ppd tc-label-gen --data massive_scenario
 # Step 2: Classification (~2,974 LLM calls — one per document)
 conda run -n ppd tc-classify --data massive_scenario --run_dir ./runs/<run_dir>
 
+# Step 2 (optimised): Batched classification (~298 LLM calls with batch_size=10)
+conda run -n ppd tc-classify --data massive_scenario --run_dir ./runs/<run_dir> --batch_size 10
+
 # Step 3: Evaluation
 conda run -n ppd tc-evaluate --data massive_scenario --run_dir ./runs/<run_dir>
 ```
 
-**Cost**: ~3,000 LLM calls · **Time**: 1–3 hours
+**Cost**: ~3,000 LLM calls (unbatched) or ~500 (batched, `--batch_size 10`) · **Time**: 1–3h (unbatched) or ~20min (batched)
 
 ---
 
@@ -458,6 +461,7 @@ make run-graphclust-full data=massive_scenario knn=20 resolution=1.5
 | K-Medoids on raw embeddings | B | `tc-kmedoids` → `tc-label-gen` → `tc-classify --medoid_mode` |
 | GMM soft clusters | C | `tc-gmm` → `tc-label-gen` → `tc-classify --representative_mode` |
 | Paper baseline (most expensive) | A | `tc-seed-labels` → `tc-label-gen` → `tc-classify` → `tc-evaluate` |
+| Paper baseline (batched, 10× faster) | A | `tc-classify --batch_size 10 --run_dir <dir>` |
 | Reuse cached embeddings | Any | Pass `--run_dir ./runs/<existing_dir>` |
 
 ---
@@ -481,6 +485,7 @@ make run-sealclust-propagate data=massive_scenario run=./runs/<run_dir>
 make run-step0
 make run-step1 data=massive_scenario
 make run-step2 data=massive_scenario run=./runs/<run_dir>
+make run-step2 data=massive_scenario run=./runs/<run_dir> classify_batch=10  # 10× faster
 make run-step3 data=massive_scenario run=./runs/<run_dir>
 
 # ── K-Medoids (Mode B) ──
@@ -517,6 +522,7 @@ make run-graphclust data=massive_scenario
 | `kstar` | `0` | SEALClust manual K\* (`0` = auto) |
 | `kmethod` | `silhouette` | K\* estimation method |
 | `run` | *(for separate stages)* | Run directory path |
+| `classify_batch` | `1` | Classification batch size (`10` = 10× fewer LLM calls) |
 | `hybrid_p` | `0.1` | Hybrid overclustering fraction |
 | `hybrid_k_min` | `2` | Hybrid K sweep minimum |
 | `hybrid_k_max` | `50` | Hybrid K sweep maximum |
@@ -591,6 +597,7 @@ make run-graphclust data=massive_scenario
 |------|------|---------|-------------|
 | `--data NAME` | str | `arxiv_fine` | Dataset name |
 | `--run_dir PATH` | str | **required** | Run dir with `labels_merged.json` |
+| `--batch_size N` | int | `1` | Sentences per LLM call (`10`–`20` recommended for 10× speedup) |
 | `--medoid_mode` | flag | — | Classify only medoid docs (Modes B, D, E) |
 | `--representative_mode` | flag | — | Classify only GMM representative docs (Mode C) |
 
