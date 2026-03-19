@@ -228,6 +228,37 @@ def main(args):
     logger.info("  (pass --run_dir %s to Step 2)", run_dir)
     start = time.time()
 
+    reuse_labels = getattr(args, "reuse_labels", False)
+    label_cache_dir = getattr(args, "label_cache_dir", None) or os.path.join(args.runs_dir, "label_cache")
+    forced_k = args.target_k if hasattr(args, "target_k") and args.target_k is not None else None
+
+    # ── Label reuse: try loading from shared cache ──
+    if reuse_labels:
+        from text_clustering.label_cache import load_labels, list_cached
+
+        cached = load_labels(label_cache_dir, args.data, size, n_labels=forced_k)
+        if cached is not None:
+            final_labels = cached
+            write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
+            logger.info("[label-reuse] Loaded %d cached labels — skipping LLM generation + merge", len(final_labels))
+
+            # Still write ground-truth labels for evaluation
+            data_list = load_dataset(args.data_path, args.data, args.use_large)
+            true_labels = get_label_list(data_list)
+            write_json(os.path.join(run_dir, "labels_true.json"), true_labels)
+
+            logger.info("Done in %.1fs (label reuse — 0 LLM calls)", time.time() - start)
+            return
+        else:
+            available = list_cached(label_cache_dir, args.data, size)
+            if available:
+                logger.info(
+                    "[label-reuse] No exact match for K=%s; available: %s — generating new labels",
+                    forced_k or "any", available,
+                )
+            else:
+                logger.info("[label-reuse] No cached labels for %s_%s — generating new labels", args.data, size)
+
     client = ini_client()
     data_list = load_dataset(args.data_path, args.data, args.use_large)
     # Use a fixed seed for shuffle so checkpoint resume sees the same order.
@@ -245,13 +276,17 @@ def main(args):
     # target_k: only pass when explicitly requested via --target_k.
     # The paper does NOT use a target — capable models (gemini, GPT-4) should
     # consolidate naturally.  Forcing k fills slots with spurious labels.
-    forced_k = args.target_k if hasattr(args, "target_k") and args.target_k is not None else None
     final_labels = merge_labels(args, all_labels, client, target_k=forced_k)
     write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
     logger.info("Labels after merge: %d", len(final_labels))
 
     # Remove checkpoint once step completes successfully
     _remove_checkpoint(run_dir)
+
+    # ── Label reuse: save to shared cache for future runs ──
+    if reuse_labels:
+        from text_clustering.label_cache import save_labels
+        save_labels(label_cache_dir, args.data, size, final_labels)
 
     ratio = len(final_labels) / len(true_labels)
     if ratio > 2:
@@ -289,6 +324,20 @@ def build_parser():
     )
     # --api_key kept for backward compatibility but ignored; key comes from .env
     parser.add_argument("--api_key", type=str, default="", help="ignored — use OPENAI_API_KEY in .env")
+    # ── Label reuse ──
+    parser.add_argument(
+        "--reuse_labels", action="store_true", default=False,
+        help=(
+            "Enable label caching.  On the first run for a dataset+split+K, "
+            "generated labels are saved to a shared cache under runs/label_cache/. "
+            "On subsequent runs with the same key, cached labels are loaded "
+            "instead of calling the LLM again."
+        ),
+    )
+    parser.add_argument(
+        "--label_cache_dir", type=str, default=None,
+        help="Directory for the shared label cache (default: <runs_dir>/label_cache).",
+    )
     return parser
 
 

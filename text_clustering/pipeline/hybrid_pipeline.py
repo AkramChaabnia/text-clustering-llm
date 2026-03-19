@@ -210,18 +210,51 @@ def run_steps_1_to_5(args) -> str:
     # ── Step 5: LLM Label Alignment ──
     target_k = args.target_k if args.target_k else optimal_k
 
-    labels_aligned_path = os.path.join(run_dir, "labels_merged.json")
-    if os.path.exists(labels_aligned_path):
-        logger.info("[cache] Loading aligned labels from %s", labels_aligned_path)
-        with open(labels_aligned_path) as f:
-            final_labels = json.load(f)
-    else:
-        if "client" not in dir():
-            from text_clustering.llm import ini_client
-            client = ini_client()
+    reuse_labels = getattr(args, "reuse_labels", False)
+    label_cache_dir = getattr(args, "label_cache_dir", None) or os.path.join(args.runs_dir, "label_cache")
 
-        final_labels = step5_align_labels(labels_k1, target_k, client)
-        _write_json(labels_aligned_path, final_labels)
+    # ── Label reuse: try loading from shared cache ──
+    _labels_from_cache = False
+    if reuse_labels:
+        from text_clustering.label_cache import load_labels as _lc_load, list_cached as _lc_list
+
+        cached = _lc_load(label_cache_dir, args.data, size, n_labels=target_k)
+        if cached is not None:
+            final_labels = cached
+            _write_json(os.path.join(run_dir, "labels_merged.json"), final_labels)
+            logger.info(
+                "[label-reuse] Loaded %d cached labels for K=%d — skipping Step 5 (LLM alignment)",
+                len(final_labels), target_k,
+            )
+            _labels_from_cache = True
+        else:
+            available = _lc_list(label_cache_dir, args.data, size)
+            if available:
+                logger.info(
+                    "[label-reuse] No exact match for K=%d; available: %s — generating labels",
+                    target_k, available,
+                )
+            else:
+                logger.info("[label-reuse] No cached labels for %s_%s — generating labels", args.data, size)
+
+    if not _labels_from_cache:
+        labels_aligned_path = os.path.join(run_dir, "labels_merged.json")
+        if os.path.exists(labels_aligned_path):
+            logger.info("[cache] Loading aligned labels from %s", labels_aligned_path)
+            with open(labels_aligned_path) as f:
+                final_labels = json.load(f)
+        else:
+            if "client" not in dir():
+                from text_clustering.llm import ini_client
+                client = ini_client()
+
+            final_labels = step5_align_labels(labels_k1, target_k, client)
+            _write_json(labels_aligned_path, final_labels)
+
+        # ── Label reuse: save to shared cache for future runs ──
+        if reuse_labels:
+            from text_clustering.label_cache import save_labels as _lc_save
+            _lc_save(label_cache_dir, args.data, size, final_labels)
 
     logger.info("Step 5: %d final labels (target was %d)", len(final_labels), target_k)
 
@@ -648,6 +681,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Continue from step N (6–8), requires --run_dir")
     parser.add_argument("--step", type=int, default=0,
                         help="Run a single step (1–8)")
+
+    # ── Label reuse ──
+    parser.add_argument(
+        "--reuse_labels", action="store_true", default=False,
+        help=(
+            "Enable label caching.  On the first run for a dataset+split+K, "
+            "generated labels are saved to a shared cache under runs/label_cache/. "
+            "On subsequent runs with the same key, Steps 1+3+5 are skipped and "
+            "cached labels are loaded instead."
+        ),
+    )
+    parser.add_argument(
+        "--label_cache_dir", type=str, default=None,
+        help="Directory for the shared label cache (default: <runs_dir>/label_cache).",
+    )
 
     return parser
 

@@ -19,13 +19,14 @@ For the full research log — experimental results, code fixes, model investigat
 5. [Usage — All Pipeline Modes](#5-usage--all-pipeline-modes)
 6. [CLI Reference](#6-cli-reference)
 7. [Resuming an Interrupted Run](#7-resuming-an-interrupted-run)
-8. [Run Directory Structure](#8-run-directory-structure)
-9. [Evaluation & Metrics](#9-evaluation--metrics)
-10. [Configuration Reference](#10-configuration-reference)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Repository Structure](#12-repository-structure)
-13. [Development](#13-development)
-14. [Citation](#14-citation)
+8. [Label Reuse (Caching)](#8-label-reuse-caching)
+9. [Run Directory Structure](#9-run-directory-structure)
+10. [Evaluation & Metrics](#10-evaluation--metrics)
+11. [Configuration Reference](#11-configuration-reference)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Repository Structure](#13-repository-structure)
+14. [Development](#14-development)
+15. [Citation](#15-citation)
 
 ---
 
@@ -765,7 +766,82 @@ tc-sealclust --data massive_scenario --k0 300 --k_star 25 \
 
 ---
 
-## 8. Run Directory Structure
+## 8. Label Reuse (Caching)
+
+By default every pipeline run regenerates labels from scratch via LLM calls.
+When you are iterating on the *same dataset* with the *same number of clusters*,
+this is wasteful.  The **`--reuse_labels`** flag enables a shared label cache
+that persists across runs.
+
+### 8.1 How It Works
+
+| Run # | Cache state | Behaviour |
+|-------|-------------|-----------|
+| 1st   | miss        | Generate labels normally via LLM, then **save** them to `runs/label_cache/` |
+| 2nd+  | hit         | **Load** cached labels — skip all LLM label-generation calls |
+
+The cache key is `{dataset}_{split}_k{n_labels}`, e.g. `massive_scenario_small_k18.json`.
+
+### 8.2 Supported Pipelines
+
+| Pipeline | Flag | Stages skipped on cache hit |
+|----------|------|-----------------------------|
+| Original (`tc-label-gen`) | `--reuse_labels` | Label generation + merge (entire Step 1) |
+| SEAL-Clust (`tc-sealclust`) | `--reuse_labels` | Stage 5 (Label Discovery) + Stage 7 (Consolidation) |
+| Hybrid (`tc-hybrid`) | `--reuse_labels` | Step 5 (LLM Label Alignment) |
+
+Graph clustering (`tc-graphclust`) generates labels per-community post-hoc and does not use this feature.
+
+### 8.3 CLI Examples
+
+```bash
+# Original pipeline — first run (generates + caches)
+tc-label-gen --data massive_scenario --reuse_labels
+
+# Original pipeline — second run (loads from cache, 0 LLM calls)
+tc-label-gen --data massive_scenario --reuse_labels
+
+# SEAL-Clust — with manual K* (best for cache reuse)
+tc-sealclust --data massive_scenario --k_star 18 --reuse_labels --full
+
+# SEAL-Clust — auto K* (cache checked after K* estimation in Stage 6)
+tc-sealclust --data massive_scenario --reuse_labels --full
+
+# Hybrid — with explicit target K
+tc-hybrid --data massive_scenario --target_k 18 --reuse_labels --full
+
+# Makefile shortcuts — add reuse_labels=1
+make run-step1 data=massive_scenario reuse_labels=1
+make run-sealclust-full data=massive_scenario kstar=18 reuse_labels=1
+make run-hybrid-full data=massive_scenario target_k=18 reuse_labels=1
+```
+
+### 8.4 Cache Directory
+
+```
+runs/
+└── label_cache/
+    ├── massive_scenario_small_k18.json    # ["Alarm & Timer", "Audio & Music", ...]
+    ├── massive_scenario_small_k19.json
+    ├── clinc_small_k150.json
+    └── ...
+```
+
+Each file is a plain JSON array of label strings.
+
+Use `--label_cache_dir <path>` to override the default location (`runs/label_cache/`).
+
+### 8.5 Tips
+
+- **Specify K explicitly** for deterministic cache hits (`--target_k`, `--k_star`).
+  When K is determined automatically (e.g. silhouette search), the cache key depends
+  on the estimated K which may vary between runs.
+- **Clear the cache** by deleting `runs/label_cache/` or individual files.
+- Default behaviour (no `--reuse_labels`) is **unchanged** — labels are always regenerated.
+
+---
+
+## 9. Run Directory Structure
 
 ```
 runs/
@@ -809,7 +885,7 @@ runs/
 
 ---
 
-## 9. Evaluation & Metrics
+## 10. Evaluation & Metrics
 
 Three standard clustering metrics computed via **Hungarian matching** (optimal 1-to-1 alignment):
 
@@ -828,7 +904,7 @@ tc-evaluate --data massive_scenario --run_dir ./runs/<run_dir>
 
 ---
 
-## 10. Configuration Reference
+## 11. Configuration Reference
 
 ### Environment Variables (`.env`)
 
@@ -897,7 +973,7 @@ EMBEDDING_MODEL=all-MiniLM-L6-v2
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### "Command not found: tc-sealclust"
 
@@ -926,7 +1002,7 @@ Some documents couldn't be classified. Try increasing K\*, or re-run Stage 7 for
 
 ---
 
-## 12. Repository Structure
+## 13. Repository Structure
 
 ```
 text-clustering-llm/
@@ -947,6 +1023,7 @@ text-clustering-llm/
 │   ├── _kmedoids_impl.py          # Custom K-Medoids (PAM alternate)
 │   ├── visualization.py           # t-SNE cluster visualisation
 │   ├── logging_config.py          # Logging setup
+│   ├── label_cache.py             # Shared label cache for --reuse_labels
 │   └── pipeline/                  # CLI entry points for all modes
 ├── paper/                         # Backward-compat shims
 ├── tools/
@@ -965,7 +1042,7 @@ text-clustering-llm/
 
 ---
 
-## 13. Development
+## 14. Development
 
 Branching: `main` ← `develop` ← `feature/<desc>` / `fix/<desc>` / `docs/<desc>`  
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
@@ -980,7 +1057,7 @@ make release          # bump version, merge develop→main, push tags
 
 ---
 
-## 14. Citation
+## 15. Citation
 
 ```bibtex
 @inproceedings{huang2024text,
