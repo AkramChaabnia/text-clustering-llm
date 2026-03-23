@@ -94,7 +94,7 @@ dataset/
 | Label generation | `gpt-3.5-turbo-0125` |
 | Label merging | `gpt-3.5-turbo-0125` |
 | Classification | `gpt-3.5-turbo-0125` |
-| Ablation upper bound | `gpt-4` |
+| Ablation upper bound (`LLM_known_labels`) | `gpt-3.5-turbo-0125` (same model, true labels given) |
 
 ### Datasets (5 main, small split)
 
