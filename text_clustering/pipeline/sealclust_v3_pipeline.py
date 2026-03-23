@@ -249,13 +249,28 @@ def run_pipeline(args) -> str:
     if not _labels_from_cache:
         # ── Stage 5: Label Discovery ──
         labels_proposed_path = os.path.join(run_dir, "labels_proposed.json")
+        _need_discovery = True
+
         if os.path.exists(labels_proposed_path):
             logger.info("[cache] Loading proposed labels from %s", labels_proposed_path)
             with open(labels_proposed_path) as f:
                 candidate_labels = json.load(f)
-        else:
-            from text_clustering.llm import ini_client
-            client = ini_client()
+
+            # If the cache has fewer labels than K*, invalidate and re-run
+            if k_star and len(candidate_labels) < k_star:
+                logger.warning(
+                    "Stage 5 (v3): Cached labels_proposed.json has %d labels "
+                    "but K*=%d — re-running label discovery",
+                    len(candidate_labels), k_star,
+                )
+                _need_discovery = True
+            else:
+                _need_discovery = False
+
+        if _need_discovery:
+            if "client" not in dir():
+                from text_clustering.llm import ini_client
+                client = ini_client()
 
             # Load representative texts
             rep_docs_path = os.path.join(run_dir, "representative_documents.jsonl")
@@ -264,10 +279,23 @@ def run_pipeline(args) -> str:
                 for line in f:
                     rep_texts.append(json.loads(line)["input"])
 
+            # Pre-seed with existing labels if any (partial cache)
+            existing = []
+            if os.path.exists(labels_proposed_path):
+                with open(labels_proposed_path) as f:
+                    existing = json.load(f)
+
             candidate_labels = discover_labels_v3(
                 rep_texts, client, chunk_size=args.label_chunk_size,
                 run_dir=run_dir,
+                min_labels=k_star if k_star else 0,
             )
+
+            # Merge in any previously cached labels we hadn't found this time
+            for lbl in existing:
+                if lbl not in candidate_labels:
+                    candidate_labels.append(lbl)
+
             _write_json(labels_proposed_path, candidate_labels)
 
         # ── Stage 7: Label Consolidation ──

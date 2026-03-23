@@ -48,6 +48,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 
 import numpy as np
@@ -237,8 +238,16 @@ def discover_labels_v3(
     client,
     chunk_size: int = 30,
     run_dir: str | None = None,
+    min_labels: int = 0,
+    max_retries: int = 3,
 ) -> list[str]:
     """Stage 5: LLM label discovery — one-word general labels.
+
+    When *min_labels* > 0 (typically set to K*), the function will retry
+    label discovery if the first pass doesn't produce enough unique labels.
+    Each retry pass shuffles the representative texts into different chunks
+    and uses a smaller chunk size to encourage the LLM to produce more
+    diverse labels.
 
     Parameters
     ----------
@@ -247,15 +256,18 @@ def discover_labels_v3(
     chunk_size : int
     run_dir : str | None
         For checkpoint save/resume.
+    min_labels : int
+        Minimum number of unique labels required.  If > 0 and the first
+        pass yields fewer labels, additional retry passes are performed
+        with reshuffled chunks.  Typically set to ``k_star``.
+    max_retries : int
+        Maximum number of extra retry passes (default 3).
 
     Returns
     -------
     list[str]
         Unique candidate labels discovered.
     """
-    from text_clustering.llm import chat
-    from text_clustering.prompts import prompt_v3_discover_labels
-
     all_labels: list[str] = []
     n_chunks = math.ceil(len(representative_texts) / chunk_size)
 
@@ -281,16 +293,92 @@ def discover_labels_v3(
         len(representative_texts), n_chunks,
     )
 
+    all_labels = _run_discovery_pass(
+        representative_texts, client, chunk_size, all_labels,
+        start_chunk, n_chunks, ckpt_path, ckpt_interval,
+    )
+
+    # ── Retry passes if we haven't reached min_labels ──
+    if min_labels > 0 and len(all_labels) < min_labels:
+        logger.warning(
+            "Stage 5 (v3): Only %d labels discovered but min_labels=%d "
+            "— starting retry passes (max %d)",
+            len(all_labels), min_labels, max_retries,
+        )
+        for retry in range(1, max_retries + 1):
+            if len(all_labels) >= min_labels:
+                break
+
+            # Shuffle representatives into different groupings
+            shuffled = list(representative_texts)
+            random.shuffle(shuffled)
+
+            # Use a smaller chunk size to get more diverse label sets
+            retry_chunk_size = max(5, chunk_size // (retry + 1))
+            n_retry_chunks = math.ceil(len(shuffled) / retry_chunk_size)
+
+            logger.info(
+                "Stage 5 (v3): Retry %d/%d — reshuffled %d reps into "
+                "%d chunks (chunk_size=%d), have %d/%d labels",
+                retry, max_retries, len(shuffled), n_retry_chunks,
+                retry_chunk_size, len(all_labels), min_labels,
+            )
+
+            all_labels = _run_discovery_pass(
+                shuffled, client, retry_chunk_size, all_labels,
+                start_chunk=0, n_chunks=n_retry_chunks,
+                ckpt_path=None, ckpt_interval=n_retry_chunks,
+                pass_label=f"retry-{retry}",
+            )
+
+        if len(all_labels) < min_labels:
+            logger.warning(
+                "Stage 5 (v3): After %d retries still only %d labels "
+                "(target %d) — proceeding with what we have",
+                max_retries, len(all_labels), min_labels,
+            )
+
+    logger.info("Stage 5 (v3): Final count — %d unique candidate labels", len(all_labels))
+
+    if ckpt_path:
+        _remove_checkpoint(ckpt_path)
+
+    return all_labels
+
+
+def _run_discovery_pass(
+    texts: list[str],
+    client,
+    chunk_size: int,
+    existing_labels: list[str],
+    start_chunk: int,
+    n_chunks: int,
+    ckpt_path: str | None,
+    ckpt_interval: int,
+    pass_label: str = "pass-1",
+) -> list[str]:
+    """Run one pass of label discovery over chunked texts.
+
+    Returns the updated (deduplicated) label list.
+    """
+    from text_clustering.llm import chat
+    from text_clustering.prompts import prompt_v3_discover_labels
+
+    all_labels = list(existing_labels)
+
     for chunk_num in range(n_chunks):
         if chunk_num < start_chunk:
             continue
 
         start = chunk_num * chunk_size
-        chunk = representative_texts[start : start + chunk_size]
+        chunk = texts[start : start + chunk_size]
         prompt = prompt_v3_discover_labels(chunk)
         raw = chat(prompt, client, max_tokens=4096)
         if raw is None:
-            logger.warning("  Chunk %d: LLM returned None — skipping", chunk_num + 1)
+            logger.warning(
+                "  [%s] Chunk %d: LLM returned None — skipping",
+                pass_label, chunk_num + 1,
+            )
             continue
 
         parsed = _safe_parse_labels(raw)
@@ -300,8 +388,8 @@ def discover_labels_v3(
                     all_labels.append(label)
 
         logger.info(
-            "  Chunk %d/%d — labels so far: %d",
-            chunk_num + 1, n_chunks, len(all_labels),
+            "  [%s] Chunk %d/%d — labels so far: %d",
+            pass_label, chunk_num + 1, n_chunks, len(all_labels),
         )
 
         if ckpt_path and (chunk_num + 1) % ckpt_interval == 0:
@@ -309,11 +397,6 @@ def discover_labels_v3(
                 "processed_chunks": chunk_num + 1,
                 "all_labels": all_labels,
             })
-
-    logger.info("Stage 5 (v3): Discovered %d unique candidate labels", len(all_labels))
-
-    if ckpt_path:
-        _remove_checkpoint(ckpt_path)
 
     return all_labels
 
