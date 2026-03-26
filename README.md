@@ -19,14 +19,16 @@ For the full research log — experimental results, code fixes, model investigat
 5. [Usage — All Pipeline Modes](#5-usage--all-pipeline-modes)
 6. [CLI Reference](#6-cli-reference)
 7. [Resuming an Interrupted Run](#7-resuming-an-interrupted-run)
-8. [Label Reuse (Caching)](#8-label-reuse-caching)
-9. [Run Directory Structure](#9-run-directory-structure)
-10. [Evaluation & Metrics](#10-evaluation--metrics)
-11. [Configuration Reference](#11-configuration-reference)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Repository Structure](#13-repository-structure)
-14. [Development](#14-development)
-15. [Citation](#15-citation)
+8. [Token Usage Tracking](#8-token-usage-tracking)
+9. [Label Reuse (Caching)](#9-label-reuse-caching)
+10. [Run Directory Structure](#10-run-directory-structure)
+11. [Evaluation & Metrics](#11-evaluation--metrics)
+12. [Configuration Reference](#12-configuration-reference)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Repository Structure](#14-repository-structure)
+15. [Tutorial — Running SEAL-Clust v4 Step by Step](#15-tutorial--running-seal-clust-v4-step-by-step)
+16. [Development](#16-development)
+17. [Citation](#17-citation)
 
 ---
 
@@ -131,6 +133,36 @@ tc-preflight   # checks LLM connectivity
 K₀ is always much larger than K\*. The pipeline over-clusters for good representative
 coverage, then uses the LLM to discover the right number of meaningful categories.
 
+### Architecture — SEAL-Clust v4 (Mode S)
+
+#### What's New in v4
+
+| Feature | v3 | v4 |
+|---------|----|----|
+| **Label style** | One-word only | 1–3 word descriptive labels |
+| **Dataset context** | None | Domain descriptions injected into all prompts |
+| **Consolidation** | Simple merge | Structured semantic grouping with preserve rules |
+| **Classification bias** | Fixed label order | Label list **shuffled per batch** |
+| **Token tracking** | None | Built-in input/output token counters |
+| **Prompt design** | Generic | Dataset-aware with scenario/service framing |
+| **CLI** | `tc-sealclust-v3` | `tc-sealclust-v4` |
+
+#### Dataset-Aware Prompts
+
+v4 automatically injects **domain context** into every LLM prompt based on the dataset name. This helps the LLM produce correctly-scoped labels without leaking any ground-truth information.
+
+For example, when processing `massive_scenario`, the LLM sees:
+
+> *DATASET CONTEXT: Short commands spoken to a virtual assistant (like Alexa or Siri). Each command asks the assistant to perform an action or retrieve information using one of the assistant's built-in features or connected services... Categories correspond to the assistant SCENARIO — the high-level service or feature the user is interacting with.*
+
+All 14 benchmark datasets have pre-written descriptions in `text_clustering/data.py`. Unknown datasets get a generic fallback.
+
+#### Label-Order Shuffling
+
+In Stage 8 (classification), the label list is **randomly shuffled for each batch** to prevent the LLM from consistently favouring labels that appear early in the list (positional bias).
+
+---
+
 ### Stage Cache Table
 
 | Stage | Cache File | If Exists → |
@@ -145,6 +177,7 @@ coverage, then uses the LLM to discover the right number of meaningful categorie
 | 9 | `classifications_full.json` | Skip propagation |
 
 ---
+
 
 ## 4. Available Datasets
 
@@ -448,6 +481,31 @@ make run-graphclust-full data=massive_scenario knn=20 resolution=1.5
 **Cost**: ~K LLM calls (post-hoc labelling only, e.g. ~18 for massive_scenario) · **Time**: 2–5min
 
 ---
+### Mode S — SEAL-Clust v4 ⭐ RECOMMENDED
+
+The latest and most capable pipeline. Dataset-aware prompts, label shuffling, and token tracking.
+
+```bash
+# ── Full pipeline (one command) ──
+tc-sealclust-v4 --data massive_scenario --k0 300 --full
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_star 18 --full
+
+# ── Step-by-step ──
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_star 18      # Stages 1–7
+tc-sealclust-v4 --data massive_scenario --run_dir ./runs/<dir> --classify   # Stage 8
+tc-sealclust-v4 --data massive_scenario --run_dir ./runs/<dir> --propagate  # Stage 9
+tc-evaluate --data massive_scenario --run_dir ./runs/<dir>                  # Evaluate
+
+# ── Using Make ──
+make run-sealclust-v4-full data=massive_scenario kstar=18
+make run-sealclust-v4 data=massive_scenario kstar=18
+make run-sealclust-v4-classify data=massive_scenario run=./runs/<dir>
+make run-sealclust-v4-propagate data=massive_scenario run=./runs/<dir>
+```
+
+**Cost**: ~116 API calls, ~88K tokens · **Time**: ~5 min
+
+---
 
 ### Modes Y/Z — SEAL-Clust v3 (Multi-Method + One-Word Labels)
 
@@ -477,7 +535,7 @@ Stage 8: LLM representative classification (batched)
 Stage 9: Label propagation (rep → all documents)
 ```
 
-**Mode Z — Full Pipeline ⭐ RECOMMENDED** (all 9 stages + evaluation):
+**Mode Z — Full Pipeline** (all 9 stages + evaluation):
 
 ```bash
 # Full end-to-end with default K-Medoids
@@ -546,8 +604,10 @@ make run-sealclust-v3-propagate data=massive_scenario run=./runs/<dir>
 
 | Scenario | Mode | Command |
 |----------|------|---------|
-| **One command, full automation** ⭐ | E | `tc-sealclust --data X --k0 300 --full` |
-| **One command, known K\*** ⭐ | E | `tc-sealclust --data X --k0 300 --k_star N --full` |
+| **One command, full automation** ⭐ | **S** | `tc-sealclust-v4 --data X --k0 300 --full` |
+| **One command, known K\*** ⭐ | **S** | `tc-sealclust-v4 --data X --k0 300 --k_star N --full`| 
+| **One command, full automation**| E | `tc-sealclust --data X --k0 300 --full` |
+| **One command, known K\***| E | `tc-sealclust --data X --k0 300 --k_star N --full` |
 | **v3: multi-method + one-word labels** | Z | `tc-sealclust-v3 --data X --k0 300 --full` |
 | **v3: GMM clustering backend** | Z | `tc-sealclust-v3 --data X --cluster_method gmm --full` |
 | **v3: with PCA reduction** | Z | `tc-sealclust-v3 --data X --k0 300 --reduction pca --full` |
@@ -566,7 +626,15 @@ make run-sealclust-v3-propagate data=massive_scenario run=./runs/<dir>
 ### Makefile Shortcuts
 
 ```bash
-# ── SEALClust v2 (Mode E — recommended) ──
+# ── SEAL-Clust v4 (Mode S — recommended) ──
+make run-sealclust-v4-full data=massive_scenario
+make run-sealclust-v4-full data=massive_scenario kstar=18
+make run-sealclust-v4-full data=massive_scenario cluster_method=gmm k0=200
+make run-sealclust-v4 data=massive_scenario kstar=18
+make run-sealclust-v4-classify data=massive_scenario run=./runs/<run_dir>
+make run-sealclust-v4-propagate data=massive_scenario run=./runs/<run_dir>
+
+# ── SEALClust v2 (Mode E ) ──
 make run-sealclust-full data=massive_scenario
 make run-sealclust-full data=massive_scenario kstar=18
 make run-sealclust-full data=massive_scenario k0=200 kmethod=ensemble
@@ -687,6 +755,29 @@ make run-sealclust-v3-propagate data=massive_scenario run=./runs/<run_dir>
 | `--use_large` | flag | — | Use `large.jsonl` split |
 | `--embedding_model M` | str | `all-MiniLM-L6-v2` | Sentence-transformers model |
 | `--label_chunk_size N` | int | `30` | Docs per LLM label-discovery call |
+| `--reuse_labels` | flag | — | Enable label cache reuse |
+| `--seed N` | int | `42` | Random seed |
+
+### `tc-sealclust-v4` — SEAL-Clust v4 Pipeline (Mode S) ⭐
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--data NAME` | str | `massive_scenario` | Dataset name |
+| `--full` | flag | — | Run all 9 stages + evaluation (Mode S) |
+| `--classify` | flag | — | Run Stage 8 only (requires `--run_dir`) |
+| `--propagate` | flag | — | Run Stage 9 only (requires `--run_dir`) |
+| `--k0 N` | int | `300` | Overclustering size K₀ |
+| `--k_star N` | int | `0` | Manual K\* (`0` = auto-estimate) |
+| `--k_method M` | str | `silhouette` | `silhouette` / `calinski` / `bic` / `ensemble` |
+| `--cluster_method M` | str | `kmedoids` | `kmedoids` / `gmm` / `kmeans` |
+| `--reduction M` | str | `none` | `none` / `pca` / `tsne` |
+| `--pca_dims N` | int | `50` | PCA output dimensions (only when `--reduction pca`) |
+| `--classify_batch_size N` | int | `20` | Representatives per LLM classification call |
+| `--label_source M` | str | `all` | `all` = every document, `representatives` = K₀ reps only |
+| `--label_chunk_size N` | int | `30` | Docs per LLM label-discovery call |
+| `--run_dir PATH` | str | — | Existing run directory |
+| `--use_large` | flag | — | Use `large.jsonl` split |
+| `--embedding_model M` | str | `all-MiniLM-L6-v2` | Sentence-transformers model |
 | `--reuse_labels` | flag | — | Enable label cache reuse |
 | `--seed N` | int | `42` | Random seed |
 
@@ -896,14 +987,65 @@ tc-sealclust --data massive_scenario --k0 300 --k_star 25 \
 
 ---
 
-## 8. Label Reuse (Caching)
+## 8. Token Usage Tracking
+
+SEAL-Clust v4 automatically tracks all LLM API usage throughout a pipeline run:
+
+- **Input tokens**: total prompt tokens sent to the API
+- **Output tokens**: total completion tokens received
+- **Total tokens**: combined (input + output)
+- **API calls**: number of individual LLM requests
+
+### Where Token Usage Appears
+
+1. **Pipeline logs** — printed at the end of every `--full` run:
+   ```
+   ─── Token Usage ───
+   API calls     : 116
+   Input tokens  : 83944
+   Output tokens : 4287
+   Total tokens  : 88231
+   ```
+
+2. **`results.json`** — saved alongside accuracy metrics:
+   ```json
+   {
+     "ACC": 0.5898,
+     "NMI": 0.5702,
+     "ARI": 0.4417,
+     "token_usage": {
+       "input_tokens": 83944,
+       "output_tokens": 4287,
+       "total_tokens": 88231,
+       "api_calls": 116
+     }
+   }
+   ```
+
+### Estimating Cost
+
+To estimate the cost of a run on `massive_scenario` , check your LLM provider's pricing:
+
+| Provider / Model | Input (per 1M tokens) | Output (per 1M tokens) | ~Cost per Run |
+|------------------|-----------------------|------------------------|:-------------:|
+| Gemini 2.0 Flash (OpenRouter) | $0.10 | $0.40 | ~$0.01 |
+| GPT-4o-mini | $0.15 | $0.60 | ~$0.02 |
+| GPT-4o | $2.50 | $10.00 | ~$0.25 |
+| GPT-5.4-mini | $0.75 | $4.50 | ~$0.10 – $0.12 |
+| GPT-5.4 | $2.50 | $15.00 | ~$0.40 – $0.50 | 
+
+A typical v4 run on `massive_scenario` uses ~84K input + ~4K output tokens ≈ **88K total tokens**.
+
+---
+
+## 9. Label Reuse (Caching)
 
 By default every pipeline run regenerates labels from scratch via LLM calls.
 When you are iterating on the *same dataset* with the *same number of clusters*,
 this is wasteful.  The **`--reuse_labels`** flag enables a shared label cache
 that persists across runs.
 
-### 8.1 How It Works
+### 9.1 How It Works
 
 | Run # | Cache state | Behaviour |
 |-------|-------------|-----------|
@@ -912,7 +1054,7 @@ that persists across runs.
 
 The cache key is `{dataset}_{split}_k{n_labels}`, e.g. `massive_scenario_small_k18.json`.
 
-### 8.2 Supported Pipelines
+### 9.2 Supported Pipelines
 
 | Pipeline | Flag | Stages skipped on cache hit |
 |----------|------|-----------------------------|
@@ -922,7 +1064,7 @@ The cache key is `{dataset}_{split}_k{n_labels}`, e.g. `massive_scenario_small_k
 
 Graph clustering (`tc-graphclust`) generates labels per-community post-hoc and does not use this feature.
 
-### 8.3 CLI Examples
+### 9.3 CLI Examples
 
 ```bash
 # Original pipeline — first run (generates + caches)
@@ -946,7 +1088,7 @@ make run-sealclust-full data=massive_scenario kstar=18 reuse_labels=1
 make run-hybrid-full data=massive_scenario target_k=18 reuse_labels=1
 ```
 
-### 8.4 Cache Directory
+### 9.4 Cache Directory
 
 ```
 runs/
@@ -961,7 +1103,7 @@ Each file is a plain JSON array of label strings.
 
 Use `--label_cache_dir <path>` to override the default location (`runs/label_cache/`).
 
-### 8.5 Tips
+### 9.5 Tips
 
 - **Specify K explicitly** for deterministic cache hits (`--target_k`, `--k_star`).
   When K is determined automatically (e.g. silhouette search), the cache key depends
@@ -971,26 +1113,36 @@ Use `--label_cache_dir <path>` to override the default location (`runs/label_cac
 
 ---
 
-## 9. Run Directory Structure
+## 10. Run Directory Structure
+
+**SEAL-Clust Run**
 
 ```
 runs/
-└── massive_scenario_small_20260314_150000/
-    ├── embeddings.npy              # Stage 1: Raw 384D embeddings (N × 384)
-    ├── embeddings_reduced.npy      # Stage 2: PCA 50D (N × 50) — SEALClust only
-    ├── sealclust_metadata.json     # Stage 3: Cluster assignments, medoid indices
-    │   OR kmedoids_metadata.json   # K-Medoids variant
-    │   OR gmm_metadata.json        # GMM variant (+ gmm_probs.npy)
-    ├── medoid_documents.jsonl      # Stage 4: Representative documents
-    ├── cluster_sizes.json          # Stage 4: Size of each micro-cluster
-    ├── labels_proposed.json        # Stage 5: ~150 candidate labels
-    ├── k_estimation.json           # Stage 6: K* estimation details
-    ├── labels_merged.json          # Stage 7: Final K* label names
-    ├── labels_true.json            # Ground-truth label list
-    ├── classifications.json        # Stage 8: {label: [sentences...]} for reps
-    ├── classifications_full.json   # Stage 9: {label: [sentences...]} for all docs
-    ├── results.json                # Evaluation: ACC, NMI, ARI
-    └── sealclust_pipeline.log      # Full pipeline log
+└── massive_scenario_small_v4_20260325_094026/
+    ├── embeddings.npy                  # Stage 1: Raw 384D embeddings (N × 384)
+    ├── sealclust_v4_metadata.json      # Stage 3: Cluster assignments, rep indices
+    ├── representative_documents.jsonl  # Stage 4: Representative documents
+    ├── labels_proposed.json            # Stage 5: ~60 candidate labels
+    ├── labels_merged.json              # Stage 7: Final K* label names
+    ├── labels_true.json                # Ground-truth label list
+    ├── classifications.json            # Stage 8: {label: [sentences...]} for reps
+    ├── classifications_full.json       # Stage 9: {label: [sentences...]} for all docs
+    ├── results.json                    # Evaluation: ACC, NMI, ARI + token usage
+    ├── sealclust_v4_pipeline.log       # Stages 1–7 log
+    ├── sealclust_v4_classify.log       # Stage 8 log
+    ├── sealclust_v4_propagate.log      # Stage 9 log
+    ├── step3_evaluation.log            # Evaluation log
+    ├── visualization.log               # Visualisation log
+    └── assets/                         # Generated plots
+        ├── tsne_predicted.png
+        ├── tsne_true.png
+        ├── umap_predicted.png
+        ├── umap_true.png
+        ├── comparison_pca.png
+        ├── distribution_predicted.png
+        ├── distribution_true.png
+        └── histogram_cluster_sizes.png
 ```
 
 **Graph Clustering (Mode H)** produces a different set of files:
@@ -1015,7 +1167,7 @@ runs/
 
 ---
 
-## 10. Evaluation & Metrics
+## 11. Evaluation & Metrics
 
 Three standard clustering metrics computed via **Hungarian matching** (optimal 1-to-1 alignment):
 
@@ -1034,7 +1186,7 @@ tc-evaluate --data massive_scenario --run_dir ./runs/<run_dir>
 
 ---
 
-## 11. Configuration Reference
+## 12. Configuration Reference
 
 ### Environment Variables (`.env`)
 
@@ -1049,15 +1201,18 @@ LLM_MAX_TOKENS=4096
 FORCE_JSON_MODE=false
 REQUEST_DELAY=0.5
 
-# ── SEALClust v2 ──
+# ── SEAL-Clust (v2/v3/v4) ──
 SEALCLUST_K0=300
 SEALCLUST_K=0                    # 0 = auto, >0 = manual K*
 SEALCLUST_K_METHOD=silhouette
-SEALCLUST_REDUCTION=pca
+SEALCLUST_REDUCTION=pca          # v2 default (v3/v4 default: none)
 SEALCLUST_PCA_DIMS=50
 SEALCLUST_BIC_K_MIN=5
 SEALCLUST_BIC_K_MAX=50
 SEALCLUST_LABEL_CHUNK_SIZE=30
+SEALCLUST_V3_CLUSTER_METHOD=kmedoids
+SEALCLUST_V3_CLASSIFY_BATCH=20
+
 
 # ── K-Medoids ──
 KMEDOIDS_K=100
@@ -1103,7 +1258,7 @@ EMBEDDING_MODEL=all-MiniLM-L6-v2
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### "Command not found: tc-sealclust"
 
@@ -1132,47 +1287,194 @@ Some documents couldn't be classified. Try increasing K\*, or re-run Stage 7 for
 
 ---
 
-## 13. Repository Structure
+## 14. Repository Structure
 
 ```
 text-clustering-llm/
-├── text_clustering/               # Python package
+├── text_clustering/                  # Python package
 │   ├── __init__.py
-│   ├── client.py                  # OpenRouter/OpenAI client factory
-│   ├── config.py                  # Centralised env-var config
-│   ├── llm.py                     # LLM helpers: chat, retry, fence stripping
-│   ├── data.py                    # Dataset loading
-│   ├── prompts.py                 # Prompt construction
-│   ├── embedding.py               # Sentence-transformers embedding
-│   ├── dimreduce.py               # PCA / t-SNE reduction
-│   ├── kmedoids.py                # K-Medoids clustering + propagation
-│   ├── gmm.py                     # GMM clustering + propagation
-│   ├── sealclust.py               # SEAL-Clust v2 pipeline orchestrator
-│   ├── hybrid.py                  # Hybrid pipeline: 8-step LLM + embedding
-│   ├── baselines.py               # KMeans / GMM baselines (no LLM)
-│   ├── _kmedoids_impl.py          # Custom K-Medoids (PAM alternate)
-│   ├── visualization.py           # t-SNE cluster visualisation
-│   ├── logging_config.py          # Logging setup
-│   ├── label_cache.py             # Shared label cache for --reuse_labels
-│   └── pipeline/                  # CLI entry points for all modes
-├── paper/                         # Backward-compat shims
+│   ├── client.py                     # OpenRouter/OpenAI client factory
+│   ├── config.py                     # Centralised env-var config
+│   ├── llm.py                        # LLM helpers: chat, retry, token tracking
+│   ├── data.py                       # Dataset loading + domain descriptions
+│   ├── prompts.py                    # Prompt construction (all versions)
+│   ├── embedding.py                  # Sentence-transformers embedding
+│   ├── dimreduce.py                  # PCA / t-SNE reduction
+│   ├── kmedoids.py                   # K-Medoids clustering + propagation
+│   ├── _kmedoids_impl.py            # Custom K-Medoids (PAM alternate)
+│   ├── gmm.py                        # GMM clustering + propagation
+│   ├── sealclust.py                  # SEAL-Clust v2 core algorithms
+│   ├── sealclust_v3.py              # SEAL-Clust v3 core algorithms
+│   ├── sealclust_v4.py              # SEAL-Clust v4 core algorithms ← NEW
+│   ├── hybrid.py                     # Hybrid pipeline: 8-step LLM + embedding
+│   ├── graphclust.py                # Graph community clustering (Louvain)
+│   ├── baselines.py                  # KMeans / GMM baselines (no LLM)
+│   ├── visualization.py             # t-SNE / UMAP cluster visualisation
+│   ├── logging_config.py            # Logging setup
+│   ├── label_cache.py               # Shared label cache for --reuse_labels
+│   └── pipeline/                     # CLI entry points for all modes
+│       ├── sealclust_v4_pipeline.py # v4 Mode S pipeline ← NEW
+│       ├── sealclust_v3_pipeline.py # v3 Modes Y/Z pipeline
+│       ├── sealclust_pipeline.py    # v2 Modes D/E pipeline
+│       ├── hybrid_pipeline.py       # Mode F pipeline
+│       ├── graphclust_pipeline.py   # Mode H pipeline
+│       ├── baseline_pipeline.py     # Mode G pipeline
+│       ├── label_generation.py      # Mode A Step 1
+│       ├── classification.py        # Modes A–E Step 2 / Stage 8
+│       ├── evaluation.py            # Evaluation (all modes)
+│       ├── kmedoids_preprocessing.py# Mode B
+│       ├── gmm_preprocessing.py     # Mode C
+│       └── seed_labels.py           # Mode A Step 0
+├── paper/                            # Backward-compat evaluation scripts
 ├── tools/
-│   ├── probe_models.py            # 6-test model compatibility probe
-│   ├── preflight.py               # Pre-run check (tc-preflight)
-│   └── remerge_labels.py          # Re-merge labels to a target count
-├── datasets/                      # 14 datasets (not in git)
-├── runs/                          # All outputs (not in git)
-├── logs/                          # Background run logs (not in git)
-├── Makefile                       # Convenience targets
-├── pyproject.toml                 # Metadata + dependencies + entry points
-├── requirements.txt               # Pinned fallback for pip
-├── FINDINGS.md                    # Research log: results, fixes, decisions
-└── CHANGELOG.md                   # Version history
+│   ├── probe_models.py              # Model compatibility probe
+│   ├── preflight.py                 # Pre-run check (tc-preflight)
+│   └── remerge_labels.py            # Re-merge labels tool
+├── datasets/                         # 14 datasets (not in git)
+├── runs/                             # All outputs (not in git)
+├── logs/                             # Background run logs (not in git)
+├── Makefile                          # Convenience targets
+├── pyproject.toml                    # Metadata + dependencies + entry points
+├── requirements.txt                  # Pinned fallback for pip
+├── FINDINGS.md                       # Research log
+├── RESEARCH_ASSESSMENT.md           # Research assessment
+├── CONTRIBUTING.md                  # Contribution guidelines
+└── CHANGELOG.md                     # Version history
 ```
+---
+
+## 15. Tutorial — Running SEAL-Clust v4 Step by Step
+
+This tutorial walks through a complete run on `massive_scenario` (2,974 virtual assistant commands, 18 ground-truth classes).
+
+### Prerequisites
+
+```bash
+conda activate ppd                        # Activate environment
+tc-preflight                              # Verify LLM connectivity
+ls datasets/massive_scenario/small.jsonl  # Verify dataset exists
+```
+
+### Option A: One-Command Full Pipeline
+
+```bash
+# Full pipeline — everything automated
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_star 18 --full
+
+# Or via Make:
+make run-sealclust-v4-full data=massive_scenario kstar=18
+```
+
+This will:
+1. Embed all 2,974 documents (all-MiniLM-L6-v2, ~10s with GPU)
+2. Overcluster into 300 micro-clusters via K-Medoids (~30s)
+3. Select 300 representative documents
+4. Discover candidate labels by sending all docs to the LLM in 30-doc chunks (~100 LLM calls)
+5. Consolidate ~60 candidates into exactly 18 final labels (~1 LLM call)
+6. Classify 300 representatives into the 18 labels (~15 LLM calls with batch_size=20)
+7. Propagate labels to all 2,974 documents
+8. Evaluate (ACC, NMI, ARI) and generate visualisations
+
+Total: **~116 API calls, ~88K tokens, ~5 minutes**
+
+### Option B: Step-by-Step (Inspect Intermediate Results)
+
+#### Step 1: Run Stages 1–7
+
+```bash
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_star 18
+# Note the printed run directory, e.g.:
+#   Run dir: ./runs/massive_scenario_small_v4_20260325_094026
+```
+
+#### Step 2: Inspect discovered labels
+
+```bash
+# Candidate labels from discovery (Stage 5) — typically 50–80 candidates
+cat ./runs/<run_dir>/labels_proposed.json | python3 -m json.tool
+
+# Final consolidated labels (Stage 7) — exactly K* labels
+cat ./runs/<run_dir>/labels_merged.json | python3 -m json.tool
+```
+
+Example output:
+```json
+["alarm", "smart_home", "music", "weather", "food", "time", "joke",
+ "date", "news", "volume", "stock", "notification", "brightness",
+ "temperature", "reminder", "shopping", "calendar", "health"]
+```
+
+#### Step 3: Classify representatives
+
+```bash
+tc-sealclust-v4 --data massive_scenario --run_dir ./runs/<run_dir> --classify
+
+# Or via Make:
+make run-sealclust-v4-classify data=massive_scenario run=./runs/<run_dir>
+```
+
+#### Step 4: Propagate labels to all documents
+
+```bash
+tc-sealclust-v4 --data massive_scenario --run_dir ./runs/<run_dir> --propagate
+
+# Or via Make:
+make run-sealclust-v4-propagate data=massive_scenario run=./runs/<run_dir>
+```
+
+#### Step 5: Evaluate
+
+```bash
+tc-evaluate --data massive_scenario --run_dir ./runs/<run_dir>
+# → results.json with ACC, NMI, ARI
+```
+
+### Option C: Different Clustering Backends
+
+```bash
+# GMM instead of K-Medoids
+tc-sealclust-v4 --data massive_scenario --k0 300 --cluster_method gmm --full
+
+# KMeans
+tc-sealclust-v4 --data massive_scenario --k0 300 --cluster_method kmeans --full
+
+# With PCA pre-reduction
+tc-sealclust-v4 --data massive_scenario --k0 300 --reduction pca --pca_dims 50 --full
+```
+
+### Option D: Auto K\* (No Ground-Truth Knowledge)
+
+```bash
+# Let the pipeline estimate K* automatically
+tc-sealclust-v4 --data massive_scenario --k0 300 --full
+
+# Try different estimation methods
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_method ensemble --full
+tc-sealclust-v4 --data massive_scenario --k0 300 --k_method calinski --full
+```
+
+> **💡 Tip**: For best accuracy, set `--k_star` to the ground-truth number of classes. All automated K\* methods tend to under-estimate.
+
+### Re-Running with Different K\*
+
+Delete the K\*-dependent files and re-run:
+
+```bash
+rm ./runs/<run_dir>/labels_merged.json \
+   ./runs/<run_dir>/classifications.json \
+   ./runs/<run_dir>/classifications_full.json \
+   ./runs/<run_dir>/results.json
+
+# Re-run with a different K*
+tc-sealclust-v4 --data massive_scenario --run_dir ./runs/<run_dir> --k_star 20 --full
+```
+
+> **💡** Keep `labels_proposed.json` — candidate labels don't depend on K\*.
 
 ---
 
-## 14. Development
+
+## 16. Development
 
 Branching: `main` ← `develop` ← `feature/<desc>` / `fix/<desc>` / `docs/<desc>`  
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
@@ -1187,7 +1489,7 @@ make release          # bump version, merge develop→main, push tags
 
 ---
 
-## 15. Citation
+## 17. Citation
 
 ```bibtex
 @inproceedings{huang2024text,
