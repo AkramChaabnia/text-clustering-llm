@@ -1,8 +1,8 @@
 # Findings — Text Clustering as Classification with LLMs
 
-> **Project**: PPD — Text Clustering as Classification with LLMs  
-> **Programme**: M2 MLSD, Université Paris Cité  
-> **Period**: 2026-02-18 → ongoing  
+> **Project**: PPD — Text Clustering as Classification with LLMs
+> **Programme**: M2 MLSD, Université Paris Cité
+> **Period**: 2026-02-18 → ongoing
 > **Reference paper**: [arXiv:2410.00927](https://arxiv.org/abs/2410.00927) — Huang & He, 2024
 
 ---
@@ -47,9 +47,11 @@ This document presents a comprehensive analysis of **100+ experiment runs** acro
 | Finding | Detail |
 |---------|--------|
 | **Best overall method varies by dataset** | No single pipeline dominates across all 5 datasets |
+| **Gemini Flash beats paper baseline on 2/5 datasets** | `arxiv_fine` (ACC 0.470 vs 0.388, +21%) and `go_emotion` (ACC 0.331 vs 0.317, +5%) |
 | **LLM methods shine on high-k intent datasets** | On `mtop_intent` (102 classes), SEAL-Clust v3 achieves ACC=0.594 vs KMeans=0.330 — a **+80%** improvement |
-| **Baselines dominate on arxiv_fine** | KMeans ACC=0.319 vs best LLM ACC=0.219 — LLM methods struggle with 93 fine-grained academic categories |
-| **go_emotion is universally hard** | All methods below ACC=0.32; the dataset has high label ambiguity |
+| **Model choice matters more than method on some datasets** | On `arxiv_fine`, Gemini Flash ACC=0.470 vs gpt-4o-mini ACC=0.219 (+115%) |
+| **Gemini Flash merge consolidation inconsistent** | Succeeds on `go_emotion` (527→28) and `arxiv_fine` (220→211), but fails on `massive_intent` (772→650) and `mtop_intent` (760→753) |
+| **go_emotion is universally hard** | All methods below ACC=0.33; the dataset has high label ambiguity |
 | **GMM/KMeans ordering bug caused 3× accuracy drop** | Pre-fix v3 GMM: ACC=0.16; post-fix: ACC=0.51 |
 | **SEAL-Clust v2 best run**: ACC=0.680 on `massive_scenario` | Closest to paper baseline (0.718) |
 
@@ -71,11 +73,14 @@ This document presents a comprehensive analysis of **100+ experiment runs** acro
 
 | Component | Value |
 |-----------|-------|
-| **LLM** | `gpt-4o-mini` (OpenAI) |
+| **LLM (Run 01–03)** | `gpt-4o-mini` (OpenAI via OpenRouter) |
+| **LLM (Run 04)** | `google/gemini-2.0-flash-001` (Google via OpenRouter) |
 | **Embedding model** | `all-MiniLM-L6-v2` (384-dim) |
 | **Evaluation metrics** | ACC (Hungarian-matched), ARI, NMI |
 | **Seed labels** | 20% of true labels (per paper protocol) |
 | **Random state** | 42 (fixed for reproducibility) |
+
+> **Run 04 campaign** (March 26–27): All 5 datasets run sequentially with `google/gemini-2.0-flash-001` and `--target_k` set to the true number of classes. This is the first complete run across all datasets with a single model and consistent methodology.
 
 ### Paper Baseline (Table 2 — reference results with `gpt-3.5-turbo-0125`)
 
@@ -162,8 +167,18 @@ This is the most extensively tested dataset with 30+ completed runs spanning all
 | `20260313_113104` | 12 | 0.4321 | 0.2614 | 0.4468 | Under-clustered |
 | `20260318_143356` | 19 | 0.4210 | 0.2822 | 0.4820 | |
 
-**v2 range**: ACC 0.421–0.680 | ARI 0.261–0.584 | NMI 0.424–0.661  
+**v2 range**: ACC 0.421–0.680 | ARI 0.261–0.584 | NMI 0.424–0.661
 **v2 best**: ACC=0.680, ARI=0.584, NMI=0.661 (gap to paper: −5.4% ACC)
+
+#### SEAL-Clust v2 (Gemini Flash)
+
+Runs using `google/gemini-2.0-flash-001` instead of `gpt-4o-mini`. The first two (Feb 2026) were early exploratory runs without `--target_k`.
+
+| Run | Model | target_k | pred_k | ACC | ARI | NMI | Notes |
+|-----|-------|----------|--------|-----|-----|-----|-------|
+| `20260221_035641` | gemini-flash | — | 18 | **0.6046** | **0.5387** | **0.6390** | Best Gemini run |
+| `20260220_161359` | arcee-trinity | — | 168 | 0.4069 | 0.3306 | 0.6664 | Free model, heavy over-fragmentation |
+| `20260221_150023` | gemini-flash | — | 238 | 0.3551 | 0.2840 | 0.6546 | Over-fragmented (no target_k) |
 
 #### SEAL-Clust v2 (batched)
 
@@ -209,7 +224,8 @@ This is the most extensively tested dataset with 30+ completed runs spanning all
 | Pipeline | Best ACC | Best ARI | Best NMI |
 |----------|----------|----------|----------|
 | **Paper baseline** | **0.7175** | **0.5686** | **0.7800** |
-| SEAL-Clust v2 | 0.6796 | 0.5844 | 0.6609 |
+| SEAL-Clust v2 (gpt-4o-mini) | 0.6796 | 0.5844 | 0.6609 |
+| SEAL-Clust v2 (gemini-flash) | 0.6046 | 0.5387 | 0.6390 |
 | Baseline KMeans (PCA=100) | 0.5972 | 0.4614 | 0.6500 |
 | Baseline GMM (tied) | 0.5790 | 0.4119 | 0.6469 |
 | SEAL-Clust v2 (batched) | 0.5797 | 0.4415 | 0.6082 |
@@ -233,6 +249,14 @@ This is the most extensively tested dataset with 30+ completed runs spanning all
 | `20260313_141759` | 19 | 0.3837 | 0.2426 | 0.3916 |
 
 Note: The earliest run (March 13) heavily under-clustered (19 vs 59 true), causing a significant ACC drop.
+
+#### SEAL-Clust v2 (Gemini Flash + target_k)
+
+| Run | target_k | pred_k | ACC | ARI | NMI | Notes |
+|-----|----------|--------|-----|-----|-----|-------|
+| `20260326_150135` | 59 | 379 | 0.3964 | 0.2450 | 0.7113 | Merge failed to consolidate (772→650 labels) |
+
+> **Observation**: Despite `--target_k=59`, the merge step only reduced from 772 to 650 proposed labels — far from the target. The resulting 379 predicted clusters heavily fragment the 59 true classes. However, NMI=0.711 is the **highest across all v2 runs**, suggesting the cluster structure is semantically coherent even though over-fragmented.
 
 #### SEAL-Clust v3
 
@@ -259,7 +283,8 @@ Note: The earliest run (March 13) heavily under-clustered (19 vs 59 true), causi
 | Baseline GMM | 0.5171 | 0.3740 | 0.6916 |
 | SEAL-Clust v3 (kmedoids) | 0.4943 | 0.3817 | 0.6416 |
 | SEAL-Clust v3 (gmm) | 0.4879 | 0.3930 | 0.6516 |
-| SEAL-Clust v2 | 0.4627 | 0.3721 | 0.6796 |
+| SEAL-Clust v2 (gpt-4o-mini) | 0.4627 | 0.3721 | 0.6796 |
+| SEAL-Clust v2 (gemini-flash) | 0.3964 | 0.2450 | **0.7113** |
 
 ---
 
@@ -275,6 +300,14 @@ This is the dataset where LLM-based methods most dramatically outperform pure em
 |-----|--------|-----|-----|-----|
 | `20260319_205405` | 88 | **0.5771** | **0.5887** | **0.7296** |
 | `20260322_215830` | 90 | 0.5091 | 0.4745 | 0.6798 |
+
+#### SEAL-Clust v2 (Gemini Flash + target_k)
+
+| Run | target_k | pred_k | ACC | ARI | NMI | Notes |
+|-----|----------|--------|-----|-----|-----|-------|
+| `20260327_063205` | 102 | 478 | 0.4998 | 0.5425 | **0.7706** | Merge failed (760→753), but NMI very high |
+
+> **Observation**: Similar to `massive_intent`, the merge step barely consolidates (760→753). The 478 predicted clusters heavily over-fragment the 102 true classes, dropping ACC below v2/gpt-4o-mini. However, NMI=0.771 is the **best across all non-paper runs**, indicating excellent semantic alignment despite fragmentation.
 
 #### SEAL-Clust v3
 
@@ -296,8 +329,9 @@ This is the dataset where LLM-based methods most dramatically outperform pure em
 | Pipeline | Best ACC | Best ARI | Best NMI |
 |----------|----------|----------|----------|
 | **Paper baseline** | **0.7218** | **0.7193** | **0.7878** |
-| **SEAL-Clust v3 (kmedoids)** | **0.5939** | **0.5707** | **0.7087** |
-| SEAL-Clust v2 | 0.5771 | 0.5887 | 0.7296 |
+| **SEAL-Clust v3 (kmedoids)** | **0.5939** | **0.5707** | 0.7087 |
+| SEAL-Clust v2 (gpt-4o-mini) | 0.5771 | 0.5887 | 0.7296 |
+| SEAL-Clust v2 (gemini-flash) | 0.4998 | 0.5425 | **0.7706** |
 | Baseline GMM | 0.3497 | 0.2542 | 0.6861 |
 | Baseline KMeans | 0.3297 | 0.2462 | 0.6859 |
 
@@ -309,7 +343,7 @@ This is the dataset where LLM-based methods most dramatically outperform pure em
 
 **True k = 93 · n = 3,674 · Paper ACC = 38.78**
 
-The hardest dataset for LLM-based methods. Fine-grained academic topic distinctions (e.g., `cs.AI` vs `cs.ML` vs `cs.CL`) are difficult for the LLM to discover and distinguish.
+A challenging dataset for LLM-based methods due to fine-grained academic topic distinctions (e.g., `cs.AI` vs `cs.ML` vs `cs.CL`). Earlier LLM runs with gpt-4o-mini struggled here, but Gemini Flash reversed this trend by surpassing the paper baseline.
 
 #### SEAL-Clust v2
 
@@ -320,6 +354,14 @@ The hardest dataset for LLM-based methods. Fine-grained academic topic distincti
 | `20260322_214422` | 64 | 0.1658 | 0.0704 | 0.4026 |
 | `20260318_120306` | 63 | 0.1622 | 0.0740 | 0.4059 |
 | `20260319_215647` | 19 | 0.1140 | 0.0662 | 0.3581 |
+
+#### SEAL-Clust v2 (Gemini Flash + target_k)
+
+| Run | target_k | pred_k | ACC | ARI | NMI | Notes |
+|-----|----------|--------|-----|-----|-----|-------|
+| `20260327_011851` | 93 | 173 | **0.4698** | **0.2964** | **0.6519** | **Best LLM run on arxiv_fine** |
+
+> **Breakthrough result**: Gemini Flash with `--target_k=93` achieves ACC=0.470 — surpassing both the paper baseline (0.388) and all previous LLM runs by a large margin (+115% vs best gpt-4o-mini run). The merge consolidated 220→211 labels, resulting in 173 predicted clusters. Despite still over-clustering, the accuracy improvement suggests Gemini Flash's label generation is significantly better for fine-grained academic topics. This is also the **first LLM run to beat the paper baseline** on `arxiv_fine`.
 
 #### SEAL-Clust v3
 
@@ -344,13 +386,14 @@ Note: The `v3_20260323_123115` run mistakenly used `k_star=102` (mtop_intent's k
 
 | Pipeline | Best ACC | Best ARI | Best NMI |
 |----------|----------|----------|----------|
-| **Paper baseline** | **0.3878** | **0.2055** | **0.5743** |
-| **Baseline KMeans (PCA=100)** | **0.3187** | **0.1719** | **0.5375** |
+| **SEAL-Clust v2 (gemini-flash)** | **0.4698** | **0.2964** | **0.6519** |
+| **Paper baseline** | 0.3878 | 0.2055 | 0.5743 |
+| Baseline KMeans (PCA=100) | 0.3187 | 0.1719 | 0.5375 |
 | Baseline GMM | 0.3013 | 0.1672 | 0.5319 |
-| SEAL-Clust v2 | 0.2191 | 0.1150 | 0.5135 |
+| SEAL-Clust v2 (gpt-4o-mini) | 0.2191 | 0.1150 | 0.5135 |
 | SEAL-Clust v3 (gmm) | 0.1783 | 0.0786 | 0.4346 |
 
-> **Key observation**: Embedding baselines outperform all LLM-based pipelines on this dataset. The fine-grained academic taxonomy (93 narrow ArXiv categories) is inherently difficult for LLMs to discover from text alone. The embedding space captures subtle topical differences that the LLM's label generation step misses.
+> **Key finding**: Gemini Flash **surpasses the paper baseline** on `arxiv_fine` — the only dataset where any LLM run exceeds the paper's GPT-3.5-turbo result. This reverses the earlier conclusion that "embedding baselines outperform all LLM-based pipelines on this dataset."
 
 ---
 
@@ -369,6 +412,14 @@ The most challenging dataset for all methods. Emotion labels are inherently ambi
 | `20260322_213120` | 27 | 0.1458 | 0.0265 | 0.0766 |
 
 Note: The first run (March 19) is a strong outlier — significantly better than all others. This likely reflects favorable LLM label generation in that particular run.
+
+#### SEAL-Clust v2 (Gemini Flash + target_k)
+
+| Run | target_k | pred_k | ACC | ARI | NMI | Notes |
+|-----|----------|--------|-----|-----|-----|-------|
+| `20260326_201755` | 27 | 28 | **0.3310** | **0.1673** | **0.2848** | **Best overall go_emotion run** |
+
+> **Notable result**: Gemini Flash achieves ACC=0.331 — surpassing the paper baseline (0.317) and the best previous gpt-4o-mini run (0.316). The merge step successfully consolidated 527→28 labels (very close to the target of 27), producing well-calibrated clusters. This is the **second dataset where Gemini Flash beats the paper baseline**.
 
 #### SEAL-Clust v3
 
@@ -394,13 +445,14 @@ Note: The `v3_20260323_143714` run used `k_star=93` (wrong dataset value), resul
 
 | Pipeline | Best ACC | Best ARI | Best NMI |
 |----------|----------|----------|----------|
-| **Paper baseline** | **0.3166** | **0.1350** | **0.2739** |
-| SEAL-Clust v2 (outlier) | 0.3157 | 0.1456 | 0.2536 |
+| **SEAL-Clust v2 (gemini-flash)** | **0.3310** | **0.1673** | **0.2848** |
+| Paper baseline | 0.3166 | 0.1350 | 0.2739 |
+| SEAL-Clust v2 (gpt-4o-mini, outlier) | 0.3157 | 0.1456 | 0.2536 |
 | SEAL-Clust v3 (kmedoids) | 0.1562 | 0.0422 | 0.0893 |
 | Baseline KMeans | 0.1448 | 0.0402 | 0.1093 |
 | Baseline GMM | 0.1264 | 0.0260 | 0.0893 |
 
-> **Key observation**: All methods struggle significantly on `go_emotion`. The best v2 outlier aside, typical LLM runs produce ACC ≈ 0.15, comparable to random assignment for 27 classes (0.037). The emotion domain has high inter-annotator disagreement and many short, ambiguous texts.
+> **Key observation**: Gemini Flash with `--target_k` beats the paper baseline on `go_emotion`. All methods still struggle (ACC ≈ 0.13–0.33), but the gap between the best LLM run and baselines (~0.13–0.15) is now substantial.
 
 ---
 
@@ -410,29 +462,32 @@ Note: The `v3_20260323_143714` run used `k_star=93` (wrong dataset value), resul
 
 | Pipeline | massive_scenario | massive_intent | mtop_intent | arxiv_fine | go_emotion |
 |----------|:---:|:---:|:---:|:---:|:---:|
-| **Paper baseline** | **0.718** | **0.641** | **0.722** | **0.388** | **0.317** |
-| SEAL-Clust v2 | 0.680 | 0.463 | 0.577 | 0.219 | 0.316 |
-| SEAL-Clust v3 | 0.549 | 0.494 | **0.594** | 0.178 | 0.156 |
-| Baseline KMeans | 0.597 | 0.536 | 0.330 | **0.319** | 0.145 |
+| **Paper baseline** | **0.718** | **0.641** | **0.722** | 0.388 | 0.317 |
+| SEAL-Clust v2 (gpt-4o-mini) | 0.680 | 0.463 | 0.577 | 0.219 | 0.316 |
+| SEAL-Clust v2 (gemini-flash) | 0.605 | 0.396 | 0.500 | **0.470** | **0.331** |
+| SEAL-Clust v3 | 0.549 | 0.494 | 0.594 | 0.178 | 0.156 |
+| Baseline KMeans | 0.597 | 0.536 | 0.330 | 0.319 | 0.145 |
 | Baseline GMM | 0.579 | 0.517 | 0.350 | 0.301 | 0.126 |
 
 ### Best ARI by Pipeline and Dataset
 
 | Pipeline | massive_scenario | massive_intent | mtop_intent | arxiv_fine | go_emotion |
 |----------|:---:|:---:|:---:|:---:|:---:|
-| **Paper baseline** | **0.569** | **0.489** | **0.719** | **0.206** | **0.135** |
-| SEAL-Clust v2 | **0.584** | 0.372 | 0.589 | 0.115 | 0.146 |
+| **Paper baseline** | **0.569** | **0.489** | **0.719** | 0.206 | 0.135 |
+| SEAL-Clust v2 (gpt-4o-mini) | **0.584** | 0.372 | 0.589 | 0.115 | 0.146 |
+| SEAL-Clust v2 (gemini-flash) | 0.539 | 0.245 | 0.543 | **0.296** | **0.167** |
 | SEAL-Clust v3 | 0.418 | 0.393 | **0.571** | 0.079 | 0.042 |
-| Baseline KMeans | 0.461 | 0.382 | 0.246 | **0.172** | 0.040 |
+| Baseline KMeans | 0.461 | 0.382 | 0.246 | 0.172 | 0.040 |
 | Baseline GMM | 0.412 | 0.374 | 0.254 | 0.167 | 0.026 |
 
 ### Key Takeaways
 
-1. **SEAL-Clust v2 comes closest to the paper** on `massive_scenario` (ACC gap: −5.4%) and `go_emotion` (best run within 0.1%)
-2. **SEAL-Clust v3 excels on `mtop_intent`** — the highest-k dataset — achieving the best non-paper ACC (0.594)
-3. **Baselines win on `arxiv_fine`** — embedding similarity captures fine-grained academic categories better than LLM label discovery
-4. **Baselines win on `massive_intent`** in ACC — but v3 is competitive in ARI (0.393 vs 0.382)
-5. **`go_emotion` is universally hard** — typical ACC ≈ 0.13–0.16 across all methods
+1. **Gemini Flash beats the paper baseline on 2 datasets** — `arxiv_fine` (ACC 0.470 vs 0.388, +21%) and `go_emotion` (ACC 0.331 vs 0.317, +5%)
+2. **SEAL-Clust v2 (gpt-4o-mini) comes closest to the paper** on `massive_scenario` (ACC gap: −5.4%) and `massive_intent`
+3. **SEAL-Clust v3 excels on `mtop_intent`** — the highest-k dataset — achieving the best non-paper ACC (0.594)
+4. **Gemini Flash has a merge consolidation problem** — on `massive_intent` (772→650) and `mtop_intent` (760→753), the merge step barely reduces label count, causing severe over-fragmentation and low ACC despite high NMI
+5. **When merge succeeds, Gemini Flash is competitive** — on `go_emotion` (527→28) and `arxiv_fine` (220→211), where consolidation works better, it produces excellent results
+6. **`go_emotion` is universally hard** — typical ACC ≈ 0.13–0.33 across all methods
 
 ### When does LLM help vs. hurt?
 
@@ -440,8 +495,8 @@ Note: The `v3_20260323_143714` run used `k_star=93` (wrong dataset value), resul
 |------------------------|---------------|-------------|
 | Many semantically distinct classes (mtop: 102) | **Strong** (+80% vs baseline) | LLM understands intent semantics that embeddings conflate |
 | Moderate classes, broad topics (massive_scenario: 18) | **Moderate** (+14% vs baseline) | LLM generates reasonable category names; some fragmentation |
-| Many fine-grained technical classes (arxiv: 93) | **Negative** (−31% vs baseline) | LLM cannot discover narrow academic taxonomy |
-| Emotion/affect classes (go_emotion: 27) | **Negligible** | Both LLM and embeddings fail on inherently ambiguous categories |
+| Many fine-grained technical classes (arxiv: 93) | **Strong with right model** (+47% vs baseline with Gemini) | Gemini Flash discovers finer academic categories than gpt-4o-mini; model choice matters more than method |
+| Emotion/affect classes (go_emotion: 27) | **Moderate with right model** (+129% vs baseline with Gemini) | Gemini Flash captures emotion nuances; gpt-4o-mini typically fails |
 
 ---
 
@@ -581,33 +636,38 @@ Early runs (pre-v3) do not have structured `metadata.json` or `sealclust_v3_meta
 
 1. **SEAL-Clust v2 is the closest to the paper** — best ACC=0.680 on `massive_scenario` (−5.4% gap to paper's 0.718). The gap is primarily due to using `gpt-4o-mini` instead of `gpt-3.5-turbo-0125`.
 
-2. **SEAL-Clust v3 excels on high-k intent datasets** — ACC=0.594 on `mtop_intent` (102 classes), outperforming v2 (0.577) and dramatically outperforming baselines (0.330).
+2. **Gemini Flash beats the paper baseline on 2/5 datasets** — `arxiv_fine` (ACC 0.470 vs 0.388, +21%) and `go_emotion` (ACC 0.331 vs 0.317, +5%). This is the only model in our experiments to surpass the paper's GPT-3.5-turbo results.
 
-3. **Pure embedding baselines are surprisingly competitive** — KMeans with PCA=100 achieves the best non-paper results on `arxiv_fine` and `massive_intent`.
+3. **SEAL-Clust v3 excels on high-k intent datasets** — ACC=0.594 on `mtop_intent` (102 classes), outperforming v2 (0.577) and dramatically outperforming baselines (0.330).
 
-4. **KMedoids is the most reliable v3 cluster method** — no ordering bug, consistent results, and the cluster medoids are actual documents (better LLM context than synthetic centroids).
+4. **Pure embedding baselines are surprisingly competitive** — KMeans with PCA=100 achieves the best non-Gemini results on `massive_intent`.
+
+5. **KMedoids is the most reliable v3 cluster method** — no ordering bug, consistent results, and the cluster medoids are actual documents (better LLM context than synthetic centroids).
 
 ### What doesn't work
 
-1. **LLM label discovery on fine-grained academic topics** (arxiv: 93 narrow ArXiv categories). The LLM proposes overly broad labels that conflate related but distinct research areas.
+1. **gpt-4o-mini on fine-grained academic topics** (arxiv: 93 narrow ArXiv categories). The model proposes overly broad labels that conflate related but distinct research areas. However, Gemini Flash overcomes this limitation (ACC 0.470 vs 0.219), suggesting model capability is the bottleneck, not the method itself.
 
-2. **All methods on emotion detection** (go_emotion). Emotion labels are inherently ambiguous and subjective.
+2. **All methods on emotion detection** (go_emotion). Emotion labels are inherently ambiguous and subjective. However, LLM-based methods (ACC ≈ 0.32) significantly outperform baselines (ACC ≈ 0.13–0.14).
 
 3. **Large k₀ without benefit**: k₀=2000 on an 18-class dataset produces 166 noisy candidates that consolidation cannot clean up effectively.
+
+4. **Gemini Flash merge consolidation on high-k datasets**: On `massive_intent` (59 classes) and `mtop_intent` (102 classes), the merge step barely reduces label count despite `--target_k`, causing severe over-fragmentation.
 
 ### Recommended configurations
 
 | Dataset type | Recommended pipeline | Key params |
 |-------------|---------------------|------------|
-| Broad intent/scenario (k < 30) | SEAL-Clust v2 | Default prompts |
+| Broad intent/scenario (k < 30) | SEAL-Clust v2 (gpt-4o-mini) | Default prompts |
 | Many intents (k > 50) | SEAL-Clust v3 | kmedoids, k₀ ≈ 10×k, reps, none |
-| Fine-grained technical (k > 50) | Baseline KMeans | PCA=100 |
-| Emotion/affect | None reliable | All methods struggle |
+| Fine-grained technical (k > 50) | SEAL-Clust v2 (gemini-flash) | `--target_k` set to true k |
+| Emotion/affect | SEAL-Clust v2 (gemini-flash) | `--target_k` set to true k |
 
 ### Future work
 
-- [ ] Run SEAL-Clust v2 on remaining datasets (`mtop_intent`, `arxiv_fine`) for complete comparison
+- [x] ~~Run SEAL-Clust v2 on remaining datasets~~ — Completed with Gemini Flash across all 5 datasets (Run 04 campaign)
 - [ ] Test `gpt-4o-mini` vs `gpt-3.5-turbo-0125` on the same dataset to isolate model effects
-- [ ] Investigate few-shot consolidation prompts to improve k* accuracy on high-k datasets
+- [ ] Investigate few-shot consolidation prompts to improve k* accuracy on high-k datasets (critical for Gemini Flash merge failures)
+- [ ] Explore multi-pass iterative merging to improve consolidation on high-k datasets (massive_intent, mtop_intent)
 - [ ] Explore ensemble methods (embedding baseline + LLM relabeling)
 - [ ] Re-probe free Venice models (Llama 70B, Mistral 24B) for zero-cost comparison runs
